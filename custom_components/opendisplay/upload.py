@@ -417,7 +417,7 @@ async def upload_to_ble_direct(
         hass: HomeAssistant,
         entity_id: str,
         img: Image.Image,
-        compressed: bool = False,
+        allow_compression: bool = False,
         dither: int = 2,
         refresh_type: int = 0,
 ) -> None:
@@ -430,7 +430,7 @@ async def upload_to_ble_direct(
         hass: Home Assistant instance
         entity_id: Entity ID of the target tag
         img: Rendered image to prepare and upload
-        compressed: Whether to compress the image data
+        allow_compression: Whether zip compression may be used if the result fits
         dither: Dithering mode (0=none, 1=Burkes, 2=ordered)
         refresh_type: Display refresh mode (0=full, 1=fast, 2=partial, 3=partial2)
     Raises:
@@ -438,10 +438,10 @@ async def upload_to_ble_direct(
     """
     mac = entity_id.split(".")[1].upper()
     _LOGGER.debug(
-        "Preparing BLE direct write upload for %s (MAC: %s, compressed=%s, refresh_type=%d)",
+        "Preparing BLE direct write upload for %s (MAC: %s, allow_compression=%s, refresh_type=%d)",
         entity_id,
         mac,
-        compressed,
+        allow_compression,
         refresh_type
     )
 
@@ -482,7 +482,7 @@ async def upload_to_ble_direct(
         # Upload via BLE using direct write protocol
         async with BLEConnection(hass, mac, protocol.service_uuid, protocol) as conn:
             uploader = BLEImageUploader(conn, mac)
-            success, processed_image = await uploader.upload_direct_write(img, metadata, compressed, dither, refresh_type)
+            success, processed_image = await uploader.upload_direct_write(img, metadata, allow_compression, dither, refresh_type)
 
             if not success:
                 raise HomeAssistantError(

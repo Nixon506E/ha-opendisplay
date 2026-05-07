@@ -18,6 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 # BLE Protocol Sizes
 BLE_BLOCK_SIZE = 4096
 BLE_MAX_PACKET_DATA_SIZE = 230
+DIRECT_WRITE_COMPRESSED_BUFFER_LIMIT = 50 * 1024
+DIRECT_WRITE_COMPRESSION_CHUNK_BYTES = 64 * 1024
 
 
 class BLEResponse(Enum):
@@ -405,9 +407,9 @@ def _prepare_block_upload(
 def _prepare_direct_write_upload(
     image: Image.Image,
     metadata: BLEDeviceMetadata,
-    compressed: bool,
+    allow_compression: bool,
     dither: int,
-) -> tuple[Image.Image, bytes, list[bytes], int, int]:
+) -> tuple[Image.Image, bytes, list[bytes], int, int, bool]:
     """Prepare direct-write BLE upload bytes off the event loop."""
     processed_image = process_image_for_device(
         image,
@@ -415,19 +417,53 @@ def _prepare_direct_write_upload(
         dither,
     )
     encoded_data = _encode_direct_write(processed_image, metadata.color_scheme.value)
+    compressed_data = (
+        _compress_direct_write_if_fits(encoded_data, DIRECT_WRITE_COMPRESSED_BUFFER_LIMIT)
+        if allow_compression
+        else None
+    )
 
-    if compressed:
-        data_to_send = zlib.compress(encoded_data, level=9)
+    if compressed_data is not None:
+        data_to_send = compressed_data
         uncompressed_size = len(encoded_data)
+        compressed = True
     else:
         data_to_send = encoded_data
         uncompressed_size = 0
+        compressed = False
 
     chunks = [
         data_to_send[i:i + BLE_MAX_PACKET_DATA_SIZE]
         for i in range(0, len(data_to_send), BLE_MAX_PACKET_DATA_SIZE)
     ]
-    return processed_image, data_to_send, chunks, uncompressed_size, len(encoded_data)
+    return processed_image, data_to_send, chunks, uncompressed_size, len(encoded_data), compressed
+
+
+def _compress_direct_write_if_fits(data: bytes, max_size: int) -> bytes | None:
+    """Compress direct-write data, returning None once the compressed payload is too large."""
+    compressor = zlib.compressobj(level=9)
+    data_view = memoryview(data)
+    compressed_parts = []
+    compressed_size = 0
+
+    for start in range(0, len(data_view), DIRECT_WRITE_COMPRESSION_CHUNK_BYTES):
+        part = compressor.compress(
+            data_view[start:start + DIRECT_WRITE_COMPRESSION_CHUNK_BYTES]
+        )
+        if part:
+            compressed_parts.append(part)
+            compressed_size += len(part)
+            if compressed_size >= max_size:
+                return None
+
+    part = compressor.flush()
+    if part:
+        compressed_parts.append(part)
+        compressed_size += len(part)
+        if compressed_size >= max_size:
+            return None
+
+    return b"".join(compressed_parts)
 
 
 class BLEImageUploader:
@@ -678,7 +714,7 @@ class BLEImageUploader:
         self,
         image: Image.Image,
         metadata: BLEDeviceMetadata,
-        compressed: bool = False,
+        allow_compression: bool = False,
         dither: int = 2,
         refresh_type: int = 0
     ) -> tuple[bool, Image.Image | None]:
@@ -687,7 +723,7 @@ class BLEImageUploader:
         Args:
             image: Rendered image
             metadata: Device metadata with dimensions and color scheme
-            compressed: Whether to compress the data
+            allow_compression: Whether zip compression may be used if the result fits
             dither: 0=none, 1=ordered, 2=floyd-steinberg
             refresh_type: Display refresh mode (0=full, 1=fast, 2=partial, 3=partial2)
             
@@ -709,11 +745,12 @@ class BLEImageUploader:
                 chunks,
                 uncompressed_size,
                 encoded_size,
+                compressed,
             ) = await self.connection.hass.async_add_executor_job(
                 _prepare_direct_write_upload,
                 image,
                 metadata,
-                compressed,
+                allow_compression,
                 dither,
             )
 
@@ -722,6 +759,11 @@ class BLEImageUploader:
                     "Direct write compressed: %d bytes -> %d bytes",
                     encoded_size,
                     len(data_to_send)
+                )
+            elif allow_compression:
+                _LOGGER.debug(
+                    "Direct write compression skipped: compressed payload exceeded %d bytes",
+                    DIRECT_WRITE_COMPRESSED_BUFFER_LIMIT,
                 )
             
             _LOGGER.info(

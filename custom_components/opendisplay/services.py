@@ -332,7 +332,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         hass,
                         entity_id,
                         image,
-                        upload_method == "direct_write_compressed",
+                        metadata.supports_zip_compression,
                         dither,
                         refresh_type
                     )
