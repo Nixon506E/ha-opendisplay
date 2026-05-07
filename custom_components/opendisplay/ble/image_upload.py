@@ -237,6 +237,31 @@ def _detect_color(r: int, g: int, b: int, color_scheme: int) -> str:
     return 'white' if (r + g + b) / 3 > 128 else 'black'
 
 
+def _direct_write_color_values(pixel_array: np.ndarray, color_scheme: int) -> np.ndarray:
+    """Return direct-write palette values using the same thresholds as _detect_color."""
+    flat = pixel_array.reshape(-1, 3)
+    r = flat[:, 0]
+    g = flat[:, 1]
+    b = flat[:, 2]
+    average = (r.astype(np.uint16) + g.astype(np.uint16) + b.astype(np.uint16)) / 3.0
+
+    values = np.where(average > 128, 1, 0).astype(np.uint8)
+    values[(r < 128) & (g < 128) & (b < 128)] = 0
+    values[(r > 200) & (g > 200) & (b > 200)] = 1
+
+    if color_scheme in (1, 3, 4):
+        values[(r > 200) & (g < 100) & (b < 100)] = 3
+
+    if color_scheme in (2, 3, 4):
+        values[(r > 200) & (g > 200) & (b < 100)] = 2
+
+    if color_scheme == 4:
+        values[(r < 100) & (g > 200) & (b < 100)] = 6
+        values[(r < 100) & (g < 100) & (b > 200)] = 5
+
+    return values
+
+
 def _encode_direct_write_1bpp(image: Image.Image) -> bytes:
     """Encode image as 1BPP for direct write (monochrome).
     
@@ -246,34 +271,13 @@ def _encode_direct_write_1bpp(image: Image.Image) -> bytes:
     Returns:
         bytes: 1BPP encoded data (white=1, black=0, NOT inverted)
     """
-    pixel_array = np.array(image.convert("RGB"))
-    height, width, _ = pixel_array.shape
-    
-    byte_data = bytearray()
-    current_byte = 0
-    bit_position = 7
-    
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixel_array[y, x]
-            # Convert to int to avoid numpy overflow warnings
-            gray = (int(r) + int(g) + int(b)) / 3.0
-            
-            # White (>128) = 1, Black (<=128) = 0
-            if gray > 128:
-                current_byte |= (1 << bit_position)
-            
-            bit_position -= 1
-            if bit_position < 0:
-                byte_data.append(current_byte)
-                current_byte = 0
-                bit_position = 7
-    
-    # Handle remaining bits
-    if bit_position != 7:
-        byte_data.append(current_byte)
-    
-    return bytes(byte_data)
+    pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8).reshape(-1, 3)
+    gray = (
+        pixel_array[:, 0].astype(np.uint16)
+        + pixel_array[:, 1].astype(np.uint16)
+        + pixel_array[:, 2].astype(np.uint16)
+    ) / 3.0
+    return np.packbits(gray > 128).tobytes()
 
 
 def _encode_direct_write_bitplanes(image: Image.Image, color_scheme: int) -> bytes:
@@ -286,48 +290,11 @@ def _encode_direct_write_bitplanes(image: Image.Image, color_scheme: int) -> byt
     Returns:
         bytes: Plane 1 (B/W, NOT inverted) + Plane 2 (R/Y)
     """
-    pixel_array = np.array(image.convert("RGB"))
-    height, width, _ = pixel_array.shape
-    
-    byte_data_plane1 = bytearray()
-    byte_data_plane2 = bytearray()
-    current_byte1 = 0
-    current_byte2 = 0
-    bit_position = 7
-    
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixel_array[y, x]
-            color = _detect_color(int(r), int(g), int(b), color_scheme)
-            
-            # Plane 1: B/W (1=white, 0=black, NOT inverted)
-            # Plane 2: R/Y (1=red when plane1=1, 1=yellow when plane1=0)
-            if color == 'white':
-                current_byte1 |= (1 << bit_position)  # plane1 = 1
-                # plane2 = 0
-            elif color == 'red':
-                current_byte1 |= (1 << bit_position)  # plane1 = 1
-                current_byte2 |= (1 << bit_position)  # plane2 = 1
-            elif color == 'yellow':
-                # plane1 = 0
-                current_byte2 |= (1 << bit_position)  # plane2 = 1
-            # black: both bits stay 0
-            
-            bit_position -= 1
-            if bit_position < 0:
-                byte_data_plane1.append(current_byte1)
-                byte_data_plane2.append(current_byte2)
-                current_byte1 = 0
-                current_byte2 = 0
-                bit_position = 7
-    
-    # Handle remaining bits
-    if bit_position != 7:
-        byte_data_plane1.append(current_byte1)
-        byte_data_plane2.append(current_byte2)
-    
-    # Concatenate: plane1 + plane2 (NOT inverted for direct write)
-    return bytes(byte_data_plane1) + bytes(byte_data_plane2)
+    pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    colors = _direct_write_color_values(pixel_array, color_scheme)
+    plane1 = (colors == 1) | (colors == 3)
+    plane2 = (colors == 2) | (colors == 3)
+    return np.packbits(plane1).tobytes() + np.packbits(plane2).tobytes()
 
 
 def _encode_direct_write_2bpp(image: Image.Image, color_scheme: int) -> bytes:
@@ -340,58 +307,33 @@ def _encode_direct_write_2bpp(image: Image.Image, color_scheme: int) -> bytes:
     Returns:
         bytes: 2BPP encoded data (4 pixels per byte)
     """
-    pixel_array = np.array(image.convert("RGB"))
-    height, width, _ = pixel_array.shape
-    
-    byte_data = bytearray()
-    current_byte = 0
-    pixel_in_byte = 0
-    
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixel_array[y, x]
-            
-            if color_scheme == 5:
-                # 4 grayscale: 00=Black, 01=DarkGray, 10=LightGray, 11=White
-                gray = (int(r) + int(g) + int(b)) / 3.0
-                if gray < 64:
-                    gray_level = 0  # GRAY0 (Black)
-                elif gray < 128:
-                    gray_level = 1  # GRAY1 (Dark Gray)
-                elif gray < 192:
-                    gray_level = 2  # GRAY2 (Light Gray)
-                else:
-                    gray_level = 3  # GRAY3 (White)
-                color_value = gray_level
-            else:
-                # BWRY: 00=Black, 01=White, 10=Yellow, 11=Red
-                color = _detect_color(int(r), int(g), int(b), color_scheme)
-                if color == 'black':
-                    color_value = 0  # 00
-                elif color == 'white':
-                    color_value = 1  # 01
-                elif color == 'yellow':
-                    color_value = 2  # 10
-                elif color == 'red':
-                    color_value = 3  # 11
-                else:
-                    color_value = 0  # Fallback to black
-            
-            # Pack 2 bits into byte (4 pixels per byte)
-            # Bits are packed from MSB: pixel0 at bits 7-6, pixel1 at bits 5-4, etc.
-            current_byte |= (color_value << (6 - pixel_in_byte * 2))
-            pixel_in_byte += 1
-            
-            if pixel_in_byte >= 4:
-                byte_data.append(current_byte)
-                current_byte = 0
-                pixel_in_byte = 0
-    
-    # Handle remaining pixels if not a multiple of 4
-    if pixel_in_byte > 0:
-        byte_data.append(current_byte)
-    
-    return bytes(byte_data)
+    pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
+
+    if color_scheme == 5:
+        flat = pixel_array.reshape(-1, 3)
+        gray = (
+            flat[:, 0].astype(np.uint16)
+            + flat[:, 1].astype(np.uint16)
+            + flat[:, 2].astype(np.uint16)
+        ) / 3.0
+        values = np.where(gray < 64, 0, np.where(gray < 128, 1, np.where(gray < 192, 2, 3))).astype(np.uint8)
+    else:
+        colors = _direct_write_color_values(pixel_array, color_scheme)
+        values = np.zeros_like(colors)
+        values[colors == 1] = 1
+        values[colors == 2] = 2
+        values[colors == 3] = 3
+
+    pad = (-len(values)) % 4
+    if pad:
+        values = np.pad(values, (0, pad))
+    groups = values.reshape(-1, 4)
+    return (
+        (groups[:, 0] << 6)
+        | (groups[:, 1] << 4)
+        | (groups[:, 2] << 2)
+        | groups[:, 3]
+    ).astype(np.uint8).tobytes()
 
 
 def _encode_direct_write_4bpp(image: Image.Image) -> bytes:
@@ -403,50 +345,13 @@ def _encode_direct_write_4bpp(image: Image.Image) -> bytes:
     Returns:
         bytes: 4BPP encoded data (2 pixels per byte)
     """
-    pixel_array = np.array(image.convert("RGB"))
-    height, width, _ = pixel_array.shape
-    
-    byte_data = bytearray()
-    current_byte = 0
-    nibble_position = 1  # Start with high nibble (1 = high, 0 = low)
-    
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixel_array[y, x]
-            color = _detect_color(int(r), int(g), int(b), 4)
-            
-            # Firmware expects: black=0, white=1, yellow=2, red=3, blue=5, green=6
-            if color == 'black':
-                color_value = 0
-            elif color == 'white':
-                color_value = 1
-            elif color == 'yellow':
-                color_value = 2
-            elif color == 'red':
-                color_value = 3
-            elif color == 'green':
-                color_value = 6
-            elif color == 'blue':
-                color_value = 5
-            else:
-                color_value = 0  # Fallback to black
-            
-            if nibble_position == 1:
-                # High nibble
-                current_byte = (color_value << 4)
-                nibble_position = 0
-            else:
-                # Low nibble
-                current_byte |= color_value
-                byte_data.append(current_byte)
-                current_byte = 0
-                nibble_position = 1
-    
-    # Handle remaining nibble if odd number of pixels
-    if nibble_position == 0:
-        byte_data.append(current_byte)
-    
-    return bytes(byte_data)
+    pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    values = _direct_write_color_values(pixel_array, 4)
+    pad = (-len(values)) % 2
+    if pad:
+        values = np.pad(values, (0, pad))
+    pairs = values.reshape(-1, 2)
+    return ((pairs[:, 0] << 4) | pairs[:, 1]).astype(np.uint8).tobytes()
 
 
 def _encode_direct_write(image: Image.Image, color_scheme: int) -> bytes:
@@ -472,6 +377,57 @@ def _encode_direct_write(image: Image.Image, color_scheme: int) -> bytes:
     else:
         # Fallback to 1BPP
         return _encode_direct_write_1bpp(image)
+
+
+def _prepare_block_upload(
+    image: Image.Image,
+    metadata: BLEDeviceMetadata,
+    protocol_type: str,
+    dither: int,
+) -> tuple[Image.Image, int, bytes]:
+    """Prepare block-based BLE upload bytes off the event loop."""
+    if protocol_type == "atc" and metadata.rotatebuffer == 1:
+        image = image.transpose(Image.Transpose.ROTATE_90)
+
+    processed_image = process_image_for_device(
+        image,
+        metadata.color_scheme.value,
+        dither,
+    )
+    data_type, pixel_array = _convert_image_to_bytes(
+        processed_image,
+        metadata.color_scheme.value,
+        compressed=True,
+    )
+    return processed_image, data_type, pixel_array
+
+
+def _prepare_direct_write_upload(
+    image: Image.Image,
+    metadata: BLEDeviceMetadata,
+    compressed: bool,
+    dither: int,
+) -> tuple[Image.Image, bytes, list[bytes], int, int]:
+    """Prepare direct-write BLE upload bytes off the event loop."""
+    processed_image = process_image_for_device(
+        image,
+        metadata.color_scheme.value,
+        dither,
+    )
+    encoded_data = _encode_direct_write(processed_image, metadata.color_scheme.value)
+
+    if compressed:
+        data_to_send = zlib.compress(encoded_data, level=9)
+        uncompressed_size = len(encoded_data)
+    else:
+        data_to_send = encoded_data
+        uncompressed_size = 0
+
+    chunks = [
+        data_to_send[i:i + BLE_MAX_PACKET_DATA_SIZE]
+        for i in range(0, len(data_to_send), BLE_MAX_PACKET_DATA_SIZE)
+    ]
+    return processed_image, data_to_send, chunks, uncompressed_size, len(encoded_data)
 
 
 class BLEImageUploader:
@@ -589,23 +545,17 @@ class BLEImageUploader:
 
             # Apply rotation for ATC devices only (OpenDisplay handles rotation firmware-side)
             if protocol_type == "atc" and metadata.rotatebuffer == 1:
-                image = image.transpose(Image.Transpose.ROTATE_90)
-                _LOGGER.debug("Applied 90° rotation for ATC device: %dx%d", image.width, image.height)
+                _LOGGER.debug("Will apply 90° rotation for ATC device")
             else:
                 _LOGGER.debug("No client-side rotation (protocol=%s, rotatebuffer=%d): %dx%d",
                              protocol_type, metadata.rotatebuffer, image.width, image.height)
 
-
-            processed_image = process_image_for_device(
+            processed_image, data_type, pixel_array = await self.connection.hass.async_add_executor_job(
+                _prepare_block_upload,
                 image,
-                metadata.color_scheme.value,
-                dither
-            )
-
-
-            # Convert image to device format
-            data_type, pixel_array = _convert_image_to_bytes(
-                processed_image, metadata.color_scheme.value, compressed=True
+                metadata,
+                protocol_type,
+                dither,
             )
 
             _LOGGER.debug(
@@ -753,28 +703,26 @@ class BLEImageUploader:
         try:
             _LOGGER.debug("Direct write: image size %dx%d", image.width, image.height)
 
-            processed_image = process_image_for_device(
+            (
+                processed_image,
+                data_to_send,
+                chunks,
+                uncompressed_size,
+                encoded_size,
+            ) = await self.connection.hass.async_add_executor_job(
+                _prepare_direct_write_upload,
                 image,
-                metadata.color_scheme.value,
-                dither
+                metadata,
+                compressed,
+                dither,
             )
-            
-            # Encode image based on color scheme
-            encoded_data = _encode_direct_write(processed_image, metadata.color_scheme.value)
-            
-            # Compress if requested
+
             if compressed:
-                compressed_data = zlib.compress(encoded_data, level=9)
                 _LOGGER.debug(
                     "Direct write compressed: %d bytes -> %d bytes",
-                    len(encoded_data),
-                    len(compressed_data)
+                    encoded_size,
+                    len(data_to_send)
                 )
-                data_to_send = compressed_data
-                uncompressed_size = len(encoded_data)
-            else:
-                data_to_send = encoded_data
-                uncompressed_size = 0
             
             _LOGGER.info(
                 "Starting direct write upload to %s (%d bytes%s, refresh type %d)",
@@ -790,12 +738,7 @@ class BLEImageUploader:
             self._direct_write_pending_acks = 0
             self._direct_write_compressed = compressed
             self._direct_write_uncompressed_size = uncompressed_size
-            
-            # Split into chunks (max 230 bytes per chunk)
-            chunk_size = BLE_MAX_PACKET_DATA_SIZE
-            for i in range(0, len(data_to_send), chunk_size):
-                chunk = data_to_send[i:i + chunk_size]
-                self._direct_write_chunks.append(chunk)
+            self._direct_write_chunks = chunks
             
             _LOGGER.debug("Split into %d chunks", len(self._direct_write_chunks))
             
@@ -815,7 +758,7 @@ class BLEImageUploader:
                     self._direct_write_chunk_index = len(self._direct_write_chunks)
                 else:
                     # Large payload - send header + first chunk
-                    first_chunk_size = min(max_start_payload - len(header), chunk_size)
+                    first_chunk_size = min(max_start_payload - len(header), BLE_MAX_PACKET_DATA_SIZE)
                     first_chunk = data_to_send[:first_chunk_size]
                     start_payload = header + first_chunk
                     await self.connection._write_raw(
