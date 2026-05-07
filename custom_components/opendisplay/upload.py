@@ -30,6 +30,13 @@ MAX_RETRIES = 3
 INITIAL_BACKOFF = 2  # seconds
 
 
+def image_to_jpeg_bytes(image: Image.Image, quality: int | str = 95) -> bytes:
+    """Encode a PIL image as JPEG bytes for AP upload or HA image preview."""
+    buffer = BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG", quality=quality)
+    return buffer.getvalue()
+
+
 class UploadQueueHandler:
     """Handle queued image uploads to the AP.
 
@@ -212,7 +219,7 @@ class UploadQueueHandler:
             _LOGGER.debug("Upload task for %s finished. %s", entity_id, self)
 
 
-async def upload_to_hub(hub, entity_id: str, img: bytes, dither: int, ttl: int,
+async def upload_to_hub(hub, entity_id: str, img: Image.Image, dither: int, ttl: int,
                        preload_type: int = 0, preload_lut: int = 0, lut: int = 1) -> None:
     """Upload image to tag through AP.
 
@@ -225,7 +232,7 @@ async def upload_to_hub(hub, entity_id: str, img: bytes, dither: int, ttl: int,
     Args:
         hub: Hub instance with connection details
         entity_id: Entity ID of the target tag
-        img: JPEG image data as bytes
+        img: Rendered image to encode and upload
         dither: Dithering mode (0=none, 1=Floyd-Steinberg, 2=ordered)
         ttl: Time-to-live in seconds
         preload_type: Type for image preloading (0=disabled)
@@ -243,6 +250,7 @@ async def upload_to_hub(hub, entity_id: str, img: bytes, dither: int, ttl: int,
 
     # Convert TTL fom seconds to minutes for the AP
     ttl_minutes = max(1, ttl // 60)
+    jpeg_bytes = await hub.hass.async_add_executor_job(image_to_jpeg_bytes, img, "maximum")
 
     backoff_delay = INITIAL_BACKOFF # Try up to MAX_RETRIES times to upload the image, retrying on TimeoutError.
 
@@ -256,7 +264,7 @@ async def upload_to_hub(hub, entity_id: str, img: bytes, dither: int, ttl: int,
                 'dither': str(dither),
                 'ttl': str(ttl_minutes),
                 'lut': str(lut),
-                'image': ('image.jpg', img, 'image/jpeg'),
+                'image': ('image.jpg', jpeg_bytes, 'image/jpeg'),
             }
 
             if preload_type > 0:
@@ -314,7 +322,7 @@ async def upload_to_hub(hub, entity_id: str, img: bytes, dither: int, ttl: int,
             ) from err
 
 
-async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: bytes, dither: int = 2) -> None:
+async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: Image.Image, dither: int = 2) -> None:
     """Upload image to BLE tag using block-based protocol.
 
     Sends an image to a BLE tag using direct Bluetooth communication.
@@ -326,7 +334,7 @@ async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: bytes, d
     Args:
         hass: Home Assistant instance
         entity_id: Entity ID of the target tag
-        img: JPEG image data as bytes
+        img: Rendered image to prepare and upload
         dither: Dithering mode (0=none, 1=Burkes, 2=ordered)
 
     Raises:
@@ -383,9 +391,9 @@ async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: bytes, d
                 if protocol_type == "atc" and metadata.rotatebuffer == 1:
                     display_image = processed_image.transpose(Image.Transpose.ROTATE_270)
 
-                buffer = BytesIO()
-                display_image.save(buffer, format="JPEG", quality=95)
-                jpeg_bytes = buffer.getvalue()
+                jpeg_bytes = await hass.async_add_executor_job(
+                    image_to_jpeg_bytes, display_image, 95
+                )
                 async_dispatcher_send(
                     hass,
                     f"{SIGNAL_TAG_IMAGE_UPDATE}_{mac}",
@@ -408,7 +416,7 @@ async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: bytes, d
 async def upload_to_ble_direct(
         hass: HomeAssistant,
         entity_id: str,
-        img: bytes,
+        img: Image.Image,
         compressed: bool = False,
         dither: int = 2,
         refresh_type: int = 0,
@@ -421,7 +429,7 @@ async def upload_to_ble_direct(
     Args:
         hass: Home Assistant instance
         entity_id: Entity ID of the target tag
-        img: JPEG image data as bytes
+        img: Rendered image to prepare and upload
         compressed: Whether to compress the image data
         dither: Dithering mode (0=none, 1=Burkes, 2=ordered)
         refresh_type: Display refresh mode (0=full, 1=fast, 2=partial, 3=partial2)
@@ -484,9 +492,9 @@ async def upload_to_ble_direct(
                 )
 
             if processed_image is not None:
-                buffer = BytesIO()
-                processed_image.save(buffer, format="JPEG", quality=95)
-                jpeg_bytes = buffer.getvalue()
+                jpeg_bytes = await hass.async_add_executor_job(
+                    image_to_jpeg_bytes, processed_image, 95
+                )
                 async_dispatcher_send(
                     hass,
                     f"{SIGNAL_TAG_IMAGE_UPDATE}_{mac}",

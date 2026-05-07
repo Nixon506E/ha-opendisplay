@@ -1,6 +1,5 @@
 """Shared BLE image upload protocol (compatible with both ATC and OpenDisplay firmware)."""
 import asyncio
-import io
 import struct
 import zlib
 import logging
@@ -569,7 +568,7 @@ class BLEImageUploader:
 
     async def upload_image_block_based(
             self,
-            image_data: bytes,
+            image: Image.Image,
             metadata: BLEDeviceMetadata,
             protocol_type: str = "atc",
             dither: int = 2
@@ -577,7 +576,7 @@ class BLEImageUploader:
         """Upload image using block-based protocol.
 
         Args:
-            image_data: JPEG image data
+            image: Rendered image
             metadata: Device metadata with dimensions and color support
             protocol_type: Protocol type ("atc" or "open_display")
             dither: 0=none, 1=ordered, 2=floyd-steinberg
@@ -586,8 +585,6 @@ class BLEImageUploader:
             tuple: (success, processed_image) - processed_image is the dithered PIL Image
         """
         try:
-            # Convert JPEG to PIL Image
-            image = Image.open(io.BytesIO(image_data))
             _LOGGER.debug("Before transpose: image size %dx%d", image.width, image.height)
 
             # Apply rotation for ATC devices only (OpenDisplay handles rotation firmware-side)
@@ -729,7 +726,7 @@ class BLEImageUploader:
 
     async def upload_direct_write(
         self,
-        image_data: bytes,
+        image: Image.Image,
         metadata: BLEDeviceMetadata,
         compressed: bool = False,
         dither: int = 2,
@@ -738,7 +735,7 @@ class BLEImageUploader:
         """Upload image using direct write protocol (OpenDisplay only).
         
         Args:
-            image_data: JPEG image data
+            image: Rendered image
             metadata: Device metadata with dimensions and color scheme
             compressed: Whether to compress the data
             dither: 0=none, 1=ordered, 2=floyd-steinberg
@@ -754,8 +751,6 @@ class BLEImageUploader:
         self.refresh_type = refresh_type
         
         try:
-            # Convert JPEG to PIL Image
-            image = Image.open(io.BytesIO(image_data))
             _LOGGER.debug("Direct write: image size %dx%d", image.width, image.height)
 
             processed_image = process_image_for_device(
