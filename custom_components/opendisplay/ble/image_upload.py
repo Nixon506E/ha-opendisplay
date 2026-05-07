@@ -240,7 +240,7 @@ def _detect_color(r: int, g: int, b: int, color_scheme: int) -> str:
 
 
 def _direct_write_color_values(pixel_array: np.ndarray, color_scheme: int) -> np.ndarray:
-    """Return direct-write palette values using the same thresholds as _detect_color."""
+    """Return direct-write firmware color values using the same thresholds as _detect_color."""
     flat = pixel_array.reshape(-1, 3)
     r = flat[:, 0]
     g = flat[:, 1]
@@ -294,6 +294,7 @@ def _encode_direct_write_bitplanes(image: Image.Image, color_scheme: int) -> byt
     """
     pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
     colors = _direct_write_color_values(pixel_array, color_scheme)
+    # Plane 1 is B/W: 1=white/red, 0=black/yellow. Plane 2 is color: 1=red/yellow.
     plane1 = (colors == 1) | (colors == 3)
     plane2 = (colors == 2) | (colors == 3)
     return np.packbits(plane1).tobytes() + np.packbits(plane2).tobytes()
@@ -318,8 +319,10 @@ def _encode_direct_write_2bpp(image: Image.Image, color_scheme: int) -> bytes:
             + flat[:, 1].astype(np.uint16)
             + flat[:, 2].astype(np.uint16)
         ) / 3.0
+        # 4 grayscale: 00=black, 01=dark gray, 10=light gray, 11=white.
         values = np.where(gray < 64, 0, np.where(gray < 128, 1, np.where(gray < 192, 2, 3))).astype(np.uint8)
     else:
+        # BWRY: 00=black, 01=white, 10=yellow, 11=red.
         colors = _direct_write_color_values(pixel_array, color_scheme)
         values = np.zeros_like(colors)
         values[colors == 1] = 1
@@ -330,6 +333,7 @@ def _encode_direct_write_2bpp(image: Image.Image, color_scheme: int) -> bytes:
     if pad:
         values = np.pad(values, (0, pad))
     groups = values.reshape(-1, 4)
+    # Pack from MSB: pixel0 at bits 7-6, pixel1 at 5-4, pixel2 at 3-2, pixel3 at 1-0.
     return (
         (groups[:, 0] << 6)
         | (groups[:, 1] << 4)
@@ -348,11 +352,13 @@ def _encode_direct_write_4bpp(image: Image.Image) -> bytes:
         bytes: 4BPP encoded data (2 pixels per byte)
     """
     pixel_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    # Firmware expects: black=0, white=1, yellow=2, red=3, blue=5, green=6.
     values = _direct_write_color_values(pixel_array, 4)
     pad = (-len(values)) % 2
     if pad:
         values = np.pad(values, (0, pad))
     pairs = values.reshape(-1, 2)
+    # Pack two pixels per byte: first pixel in the high nibble, second in the low nibble.
     return ((pairs[:, 0] << 4) | pairs[:, 1]).astype(np.uint8).tobytes()
 
 
@@ -388,8 +394,10 @@ def _prepare_block_upload(
     dither: int,
 ) -> tuple[Image.Image, int, bytes]:
     """Prepare block-based BLE upload bytes off the event loop."""
+    # ATC stores rotated image memory client-side; OpenDisplay handles rotation firmware-side.
     if protocol_type == "atc" and metadata.rotatebuffer == 1:
         image = image.transpose(Image.Transpose.ROTATE_90)
+        _LOGGER.debug("Applied 90° ATC memory rotation: %dx%d", image.width, image.height)
 
     processed_image = process_image_for_device(
         image,
@@ -577,14 +585,14 @@ class BLEImageUploader:
             tuple: (success, processed_image) - processed_image is the dithered PIL Image
         """
         try:
-            _LOGGER.debug("Before transpose: image size %dx%d", image.width, image.height)
-
-            # Apply rotation for ATC devices only (OpenDisplay handles rotation firmware-side)
-            if protocol_type == "atc" and metadata.rotatebuffer == 1:
-                _LOGGER.debug("Will apply 90° rotation for ATC device")
-            else:
-                _LOGGER.debug("No client-side rotation (protocol=%s, rotatebuffer=%d): %dx%d",
-                             protocol_type, metadata.rotatebuffer, image.width, image.height)
+            _LOGGER.debug(
+                "Block upload input for %s: %dx%d (protocol=%s, rotatebuffer=%d)",
+                self.mac_address,
+                image.width,
+                image.height,
+                protocol_type,
+                metadata.rotatebuffer,
+            )
 
             processed_image, data_type, pixel_array = await self.connection.hass.async_add_executor_job(
                 _prepare_block_upload,
