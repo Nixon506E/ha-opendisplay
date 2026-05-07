@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import wraps
+from time import perf_counter
 from typing import Final, Any, Callable
 
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -257,6 +258,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             width, height, accent_color = await generator.get_tag_dimensions(
                 entity_id, is_ble=is_ble
             )
+            render_start = perf_counter()
             image = await generator.generate_custom_image(
                 entity_id=entity_id,
                 service_data=service.data,
@@ -265,6 +267,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 height=height,
                 accent_color=accent_color,
             )
+            render_duration = perf_counter() - render_start
 
             if device_errors:
                 errors_str = "\n".join(device_errors)
@@ -283,15 +286,22 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
             # Handle dry-run mode
             if service.data.get("dry-run", False):
-                _LOGGER.info("Dry run completed for %s", entity_id)
                 tag_mac = get_mac_from_entity_id(entity_id)
+                preview_start = perf_counter()
                 jpeg_bytes = await hass.async_add_executor_job(
                     image_to_jpeg_bytes, image, "maximum"
                 )
+                preview_duration = perf_counter() - preview_start
                 async_dispatcher_send(
                     hass,
                     f"{SIGNAL_TAG_IMAGE_UPDATE}_{tag_mac}",
                     jpeg_bytes
+                )
+                _LOGGER.info(
+                    "drawcustom dry run completed for %s: render=%.3fs preview_encode=%.3fs",
+                    entity_id,
+                    render_duration,
+                    preview_duration,
                 )
                 return
 
@@ -325,7 +335,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 upload_method = metadata.get_best_upload_method()
 
                 if upload_method == "block":
-                    await ble_upload_queue.add_to_queue(upload_to_ble_block, hass, entity_id, image, dither)
+                    await ble_upload_queue.add_to_queue(upload_to_ble_block, hass, entity_id, image, dither, render_duration)
                 else:
                     await ble_upload_queue.add_to_queue(
                         upload_to_ble_direct,
@@ -334,7 +344,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         image,
                         metadata.supports_zip_compression,
                         dither,
-                        refresh_type
+                        refresh_type,
+                        render_duration,
                     )
             else:
                 # Map refresh_type to AP's lut parameter
@@ -346,7 +357,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     service.data.get("ttl", 60),
                     service.data.get("preload_type", 0),
                     service.data.get("preload_lut", 0),
-                    ap_lut
+                    ap_lut,
+                    render_duration,
                 )
 
         except ServiceValidationError:

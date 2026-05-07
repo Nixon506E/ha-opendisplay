@@ -4,6 +4,7 @@ import struct
 import zlib
 import logging
 from enum import Enum
+from time import perf_counter
 
 import numpy as np
 from PIL import Image
@@ -392,24 +393,26 @@ def _prepare_block_upload(
     metadata: BLEDeviceMetadata,
     protocol_type: str,
     dither: int,
-) -> tuple[Image.Image, int, bytes]:
+) -> tuple[Image.Image, int, bytes, float]:
     """Prepare block-based BLE upload bytes off the event loop."""
     # ATC stores rotated image memory client-side; OpenDisplay handles rotation firmware-side.
     if protocol_type == "atc" and metadata.rotatebuffer == 1:
         image = image.transpose(Image.Transpose.ROTATE_90)
         _LOGGER.debug("Applied 90° ATC memory rotation: %dx%d", image.width, image.height)
 
+    quantize_start = perf_counter()
     processed_image = process_image_for_device(
         image,
         metadata.color_scheme.value,
         dither,
     )
+    quantize_duration = perf_counter() - quantize_start
     data_type, pixel_array = _convert_image_to_bytes(
         processed_image,
         metadata.color_scheme.value,
         compressed=True,
     )
-    return processed_image, data_type, pixel_array
+    return processed_image, data_type, pixel_array, quantize_duration
 
 
 def _prepare_direct_write_upload(
@@ -417,13 +420,15 @@ def _prepare_direct_write_upload(
     metadata: BLEDeviceMetadata,
     allow_compression: bool,
     dither: int,
-) -> tuple[Image.Image, bytes, list[bytes], int, int, bool]:
+) -> tuple[Image.Image, bytes, list[bytes], int, int, bool, float]:
     """Prepare direct-write BLE upload bytes off the event loop."""
+    quantize_start = perf_counter()
     processed_image = process_image_for_device(
         image,
         metadata.color_scheme.value,
         dither,
     )
+    quantize_duration = perf_counter() - quantize_start
     encoded_data = _encode_direct_write(processed_image, metadata.color_scheme.value)
     compressed_data = (
         _compress_direct_write_if_fits(encoded_data, DIRECT_WRITE_COMPRESSED_BUFFER_LIMIT)
@@ -444,7 +449,7 @@ def _prepare_direct_write_upload(
         data_to_send[i:i + BLE_MAX_PACKET_DATA_SIZE]
         for i in range(0, len(data_to_send), BLE_MAX_PACKET_DATA_SIZE)
     ]
-    return processed_image, data_to_send, chunks, uncompressed_size, len(encoded_data), compressed
+    return processed_image, data_to_send, chunks, uncompressed_size, len(encoded_data), compressed, quantize_duration
 
 
 def _compress_direct_write_if_fits(data: bytes, max_size: int) -> bytes | None:
@@ -571,7 +576,8 @@ class BLEImageUploader:
             image: Image.Image,
             metadata: BLEDeviceMetadata,
             protocol_type: str = "atc",
-            dither: int = 2
+            dither: int = 2,
+            render_duration: float | None = None,
     ) -> tuple[bool, Image.Image | None]:
         """Upload image using block-based protocol.
 
@@ -580,6 +586,7 @@ class BLEImageUploader:
             metadata: Device metadata with dimensions and color support
             protocol_type: Protocol type ("atc" or "open_display")
             dither: 0=none, 1=ordered, 2=floyd-steinberg
+            render_duration: Time spent rendering the image before upload, in seconds
 
         Returns:
             tuple: (success, processed_image) - processed_image is the dithered PIL Image
@@ -594,7 +601,7 @@ class BLEImageUploader:
                 metadata.rotatebuffer,
             )
 
-            processed_image, data_type, pixel_array = await self.connection.hass.async_add_executor_job(
+            processed_image, data_type, pixel_array, quantize_duration = await self.connection.hass.async_add_executor_job(
                 _prepare_block_upload,
                 image,
                 metadata,
@@ -619,6 +626,7 @@ class BLEImageUploader:
             data_info = _create_data_info(
                 255, zlib.crc32(self._img_array) & 0xFFFFFFF, self._img_array_len, data_type, 0, 0
             )
+            send_refresh_start = perf_counter()
             await self.connection._write_raw(bytes.fromhex(BLECommand.DATA_INFO.value) + data_info)
 
             # Wait for responses using request-response pattern
@@ -635,7 +643,16 @@ class BLEImageUploader:
                 raise BLEError(f"Upload failed: {self._upload_error}")
 
             # Only reach here if upload_complete was set by a success response
-            _LOGGER.info("BLE image upload completed successfully for %s", self.mac_address)
+            send_refresh_duration = perf_counter() - send_refresh_start
+            _LOGGER.info(
+                "BLE block upload completed for %s: render=%.3fs dither_quantize=%.3fs send_refresh=%.3fs bytes=%d data_type=0x%02x",
+                self.mac_address,
+                render_duration or 0.0,
+                quantize_duration,
+                send_refresh_duration,
+                len(pixel_array),
+                data_type,
+            )
             return True, processed_image
 
         except Exception as e:
@@ -724,7 +741,8 @@ class BLEImageUploader:
         metadata: BLEDeviceMetadata,
         allow_compression: bool = False,
         dither: int = 2,
-        refresh_type: int = 0
+        refresh_type: int = 0,
+        render_duration: float | None = None,
     ) -> tuple[bool, Image.Image | None]:
         """Upload image using direct write protocol (OpenDisplay only).
         
@@ -734,6 +752,7 @@ class BLEImageUploader:
             allow_compression: Whether zip compression may be used if the result fits
             dither: 0=none, 1=ordered, 2=floyd-steinberg
             refresh_type: Display refresh mode (0=full, 1=fast, 2=partial, 3=partial2)
+            render_duration: Time spent rendering the image before upload, in seconds
             
         Returns:
             bool: True if upload succeeded, False otherwise
@@ -754,6 +773,7 @@ class BLEImageUploader:
                 uncompressed_size,
                 encoded_size,
                 compressed,
+                quantize_duration,
             ) = await self.connection.hass.async_add_executor_job(
                 _prepare_direct_write_upload,
                 image,
@@ -793,6 +813,7 @@ class BLEImageUploader:
             _LOGGER.debug("Split into %d chunks", len(self._direct_write_chunks))
             
             # Send start command
+            send_refresh_start = perf_counter()
             if compressed:
                 # Compressed: send 4-byte header + initial data if it fits
                 header = struct.pack("<I", uncompressed_size)
@@ -837,7 +858,18 @@ class BLEImageUploader:
             if self._upload_error:
                 raise BLEError(f"Direct write failed: {self._upload_error}")
             
-            _LOGGER.info("Direct write upload completed successfully for %s", self.mac_address)
+            send_refresh_duration = perf_counter() - send_refresh_start
+            _LOGGER.info(
+                "Direct write upload completed for %s: render=%.3fs dither_quantize=%.3fs send_refresh=%.3fs bytes=%d encoded_bytes=%d compressed=%s refresh_type=%d",
+                self.mac_address,
+                render_duration or 0.0,
+                quantize_duration,
+                send_refresh_duration,
+                len(data_to_send),
+                encoded_size,
+                compressed,
+                refresh_type,
+            )
             return True, processed_image
             
         except Exception as e:

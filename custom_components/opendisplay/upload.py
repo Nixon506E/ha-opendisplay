@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime
 from io import BytesIO
+from time import perf_counter
 from typing import Final
 
 import async_timeout
@@ -220,7 +221,8 @@ class UploadQueueHandler:
 
 
 async def upload_to_hub(hub, entity_id: str, img: Image.Image, dither: int, ttl: int,
-                       preload_type: int = 0, preload_lut: int = 0, lut: int = 1) -> None:
+                       preload_type: int = 0, preload_lut: int = 0, lut: int = 1,
+                       render_duration: float | None = None) -> None:
     """Upload image to tag through AP.
 
     Sends an image to the AP for display on a specific tag using
@@ -238,6 +240,7 @@ async def upload_to_hub(hub, entity_id: str, img: Image.Image, dither: int, ttl:
         preload_type: Type for image preloading (0=disabled)
         preload_lut: Look-up table for preloading
         lut: Display refresh LUT mode (1=full, 3=fast, 2=fast no-reds, 0=no-repeats)
+        render_duration: Time spent rendering the image before upload, in seconds
     Raises:
         HomeAssistantError: If upload fails or times out
     """
@@ -250,9 +253,13 @@ async def upload_to_hub(hub, entity_id: str, img: Image.Image, dither: int, ttl:
 
     # Convert TTL fom seconds to minutes for the AP
     ttl_minutes = max(1, ttl // 60)
+    encode_start = perf_counter()
     jpeg_bytes = await hub.hass.async_add_executor_job(image_to_jpeg_bytes, img, "maximum")
+    jpeg_encode_duration = perf_counter() - encode_start
 
     backoff_delay = INITIAL_BACKOFF # Try up to MAX_RETRIES times to upload the image, retrying on TimeoutError.
+    send_start = perf_counter()
+    response = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -321,8 +328,24 @@ async def upload_to_hub(hub, entity_id: str, img: Image.Image, dither: int, ttl:
                 translation_placeholders={"entity_id": entity_id, "error": str(err)}
             ) from err
 
+    send_duration = perf_counter() - send_start
+    _LOGGER.info(
+        "AP upload completed for %s: render=%.3fs jpeg_encode=%.3fs send=%.3fs status=%s",
+        entity_id,
+        render_duration or 0.0,
+        jpeg_encode_duration,
+        send_duration,
+        response.status_code if response is not None else "unknown",
+    )
 
-async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: Image.Image, dither: int = 2) -> None:
+
+async def upload_to_ble_block(
+        hass: HomeAssistant,
+        entity_id: str,
+        img: Image.Image,
+        dither: int = 2,
+        render_duration: float | None = None,
+) -> None:
     """Upload image to BLE tag using block-based protocol.
 
     Sends an image to a BLE tag using direct Bluetooth communication.
@@ -336,6 +359,7 @@ async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: Image.Im
         entity_id: Entity ID of the target tag
         img: Rendered image to prepare and upload
         dither: Dithering mode (0=none, 1=Burkes, 2=ordered)
+        render_duration: Time spent rendering the image before upload, in seconds
 
     Raises:
         HomeAssistantError: If BLE upload fails
@@ -376,7 +400,13 @@ async def upload_to_ble_block(hass: HomeAssistant, entity_id: str, img: Image.Im
         # Upload via BLE using protocol-specific service UUID
         async with BLEConnection(hass, mac, protocol.service_uuid, protocol) as conn:
             uploader = BLEImageUploader(conn, mac)
-            success, processed_image = await uploader.upload_image_block_based(img, metadata, protocol_type, dither)
+            success, processed_image = await uploader.upload_image_block_based(
+                img,
+                metadata,
+                protocol_type,
+                dither,
+                render_duration,
+            )
 
             if not success:
                 raise HomeAssistantError(
@@ -420,6 +450,7 @@ async def upload_to_ble_direct(
         allow_compression: bool = False,
         dither: int = 2,
         refresh_type: int = 0,
+        render_duration: float | None = None,
 ) -> None:
     """Upload image to BLE tag using direct write protocol (OpenDisplay only).
 
@@ -433,6 +464,7 @@ async def upload_to_ble_direct(
         allow_compression: Whether zip compression may be used if the result fits
         dither: Dithering mode (0=none, 1=Burkes, 2=ordered)
         refresh_type: Display refresh mode (0=full, 1=fast, 2=partial, 3=partial2)
+        render_duration: Time spent rendering the image before upload, in seconds
     Raises:
         HomeAssistantError: If BLE direct write upload fails
     """
@@ -482,7 +514,14 @@ async def upload_to_ble_direct(
         # Upload via BLE using direct write protocol
         async with BLEConnection(hass, mac, protocol.service_uuid, protocol) as conn:
             uploader = BLEImageUploader(conn, mac)
-            success, processed_image = await uploader.upload_direct_write(img, metadata, allow_compression, dither, refresh_type)
+            success, processed_image = await uploader.upload_direct_write(
+                img,
+                metadata,
+                allow_compression,
+                dither,
+                refresh_type,
+                render_duration,
+            )
 
             if not success:
                 raise HomeAssistantError(
