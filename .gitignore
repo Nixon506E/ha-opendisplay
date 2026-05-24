@@ -164,7 +164,11 @@ lib64
 # Home Assistant configuration
 config/
 
+# Editor / tooling
+.claude/
+.run/
+uv.lock
+ha_data_provider.md
+
 custom_components/opendisplay/*.jpg
 custom_components/opendisplay/lastapinteraction.txt
-
-tests/drawcustom/test_images/rename_me.png
