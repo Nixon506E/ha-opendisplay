@@ -9,10 +9,11 @@
   ],
   "codeowners": ["@g4bri3lDev"],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters", "http"],
-  "documentation": "https://www.home-assistant.io/integrations/opendisplay",
+  "dependencies": ["bluetooth_adapters", "http", "recorder"],
+  "documentation": "https://github.com/OpenDisplay/Home_Assistant_Integration",
   "integration_type": "device",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/OpenDisplay/Home_Assistant_Integration/issues",
   "loggers": ["opendisplay"],
   "requirements": ["py-opendisplay==7.2.5", "odl-renderer==0.5.8"],
   "version": "3.0.0-beta.1"
