@@ -7,6 +7,7 @@ from datetime import timedelta
 from enum import IntEnum
 import io
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -371,6 +372,16 @@ async def _async_drawcustom(call: ServiceCall) -> None:
         )
 
 
+def _font_search_dirs(hass: HomeAssistant) -> list[str]:
+    """Return font search directories in priority order."""
+    candidates = [
+        hass.config.path("www/fonts"),
+        hass.config.path("media/fonts"),
+        "/media/fonts",
+    ]
+    return [p for p in candidates if os.path.isdir(p)]
+
+
 async def _drawcustom_for_device(
     hass: HomeAssistant, device_id: str, call: ServiceCall
 ) -> None:
@@ -387,6 +398,7 @@ async def _drawcustom_for_device(
         accent_color=color_scheme.accent_color,
         session=async_get_clientsession(hass),
         data_provider=HADataProvider(hass),
+        font_dirs=_font_search_dirs(hass),
     )
 
     rotate = call.data.get("rotate", 0)
@@ -456,3 +468,5 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=SCHEMA_UPLOAD_IMAGE,
     )
     hass.services.async_register(DOMAIN, "drawcustom", _async_drawcustom)
+
+## TODO: piggyback off of upload image? also vol for validation in drawcustom
