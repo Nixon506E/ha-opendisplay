@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 import logging
 
 from opendisplay import MANUFACTURER_ID, AdvertisementTracker, parse_advertisement
-from opendisplay.models.advertisement import AdvertisementData, ButtonChangeEvent
+from opendisplay.models.advertisement import (
+    AdvertisementData,
+    ButtonChangeEvent,
+    TouchChangeEvent,
+    TouchTracker,
+)
 
 from homeassistant.components.bluetooth import (
     BluetoothChange,
@@ -26,6 +31,7 @@ class OpenDisplayUpdate:
     address: str
     advertisement: AdvertisementData
     button_events: list[ButtonChangeEvent] = field(default_factory=list)
+    touch_events: list[TouchChangeEvent] = field(default_factory=list)
 
 
 class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
@@ -42,6 +48,7 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
         )
         self.data: OpenDisplayUpdate | None = None
         self._tracker: AdvertisementTracker = AdvertisementTracker()
+        self.touch_trackers: list[TouchTracker] = []
 
     @callback
     def _async_handle_unavailable(
@@ -79,10 +86,16 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
             )
         else:
             button_events = self._tracker.update(service_info.address, advertisement)
+            touch_events: list[TouchChangeEvent] = []
+            for touch_tracker in self.touch_trackers:
+                touch_events.extend(
+                    touch_tracker.update(service_info.address, advertisement)
+                )
             self.data = OpenDisplayUpdate(
                 address=service_info.address,
                 advertisement=advertisement,
                 button_events=button_events,
+                touch_events=touch_events,
             )
 
         super()._async_handle_bluetooth_event(service_info, change)

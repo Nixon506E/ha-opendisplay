@@ -146,11 +146,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
     )
 
     await hass.config_entries.async_forward_entry_setups(
-        entry, _FLEX_PLATFORMS if is_flex else _BASE_PLATFORMS
+        entry, _get_platforms(entry.runtime_data)
     )
     entry.async_on_unload(coordinator.async_start())
 
     return True
+
+
+def _get_platforms(runtime_data: OpenDisplayRuntimeData) -> list[Platform]:
+    """Return the platforms to set up for this device."""
+    platforms = list(_FLEX_PLATFORMS if runtime_data.is_flex else _BASE_PLATFORMS)
+    if not runtime_data.is_flex and runtime_data.device_config.touch_controllers:
+        platforms.append(Platform.EVENT)
+    return platforms
 
 
 async def async_unload_entry(
@@ -163,5 +171,5 @@ async def async_unload_entry(
             await task
 
     return await hass.config_entries.async_unload_platforms(
-        entry, _FLEX_PLATFORMS if entry.runtime_data.is_flex else _BASE_PLATFORMS
+        entry, _get_platforms(entry.runtime_data)
     )

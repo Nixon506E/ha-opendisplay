@@ -1,5 +1,7 @@
 """Base entity for OpenDisplay devices."""
 
+from typing import Generic, TypeVar
+
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothCoordinatorEntity,
 )
@@ -8,16 +10,22 @@ from homeassistant.helpers.entity import EntityDescription
 
 from .coordinator import OpenDisplayCoordinator
 
+_DescriptionT = TypeVar("_DescriptionT", bound=EntityDescription)
 
-class OpenDisplayEntity(PassiveBluetoothCoordinatorEntity[OpenDisplayCoordinator]):
+
+class OpenDisplayEntity(
+    PassiveBluetoothCoordinatorEntity[OpenDisplayCoordinator],
+    Generic[_DescriptionT],
+):
     """Base class for all OpenDisplay entities."""
 
     _attr_has_entity_name = True
+    entity_description: _DescriptionT
 
     def __init__(
         self,
         coordinator: OpenDisplayCoordinator,
-        description: EntityDescription,
+        description: _DescriptionT,
     ) -> None:
         """Initialize the entity."""
         super().__init__(coordinator)
