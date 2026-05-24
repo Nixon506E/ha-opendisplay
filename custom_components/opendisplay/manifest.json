@@ -3,46 +3,17 @@
   "name": "OpenDisplay",
   "bluetooth": [
     {
-      "manufacturer_id": 4919
-    },
-    {
+      "connectable": true,
       "manufacturer_id": 9286
     }
   ],
-  "codeowners": [
-    "@g4bri3lDev",
-    "@jonasniesner"
-  ],
+  "codeowners": ["@g4bri3lDev"],
   "config_flow": true,
-  "dependencies": [
-    "bluetooth",
-    "recorder"
-  ],
-  "dhcp": [
-    {
-      "hostname": "openepaperlink-*"
-    }
-  ],
-  "documentation": "https://github.com/OpenDisplay-org/Home_Assistant_Integration",
-  "integration_type": "hub",
+  "dependencies": ["bluetooth_adapters", "http"],
+  "documentation": "https://www.home-assistant.io/integrations/opendisplay",
+  "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/OpenDisplay-org/Home_Assistant_Integration/issues",
-  "preview_features": {
-    "opendisplay_ble_updates": {
-      "learn_more_url": "https://github.com/OpenDisplay-org/Firmware",
-      "report_issue_url": "https://github.com/OpenDisplay-org/Home_Assistant_Integration/issues"
-    }
-  },
-  "requirements": [
-    "qrcode[pil]==7.4.2",
-    "requests_toolbelt==1.0.0",
-    "websocket-client==1.7.0",
-    "websockets>=14.2",
-    "python-resize-image==1.1.20",
-    "bleak>=1.0.1",
-    "bleak-retry-connector>=3.4.0",
-    "numpy>=1.26.4",
-    "Pillow>=10.4.0"
-  ],
-  "version": "2.0.2"
+  "loggers": ["opendisplay"],
+  "quality_scale": "silver",
+  "requirements": ["py-opendisplay==7.2.3"]
 }
