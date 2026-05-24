@@ -83,6 +83,21 @@ SCHEMA_UPLOAD_IMAGE = vol.Schema(
 )
 
 
+SCHEMA_DRAWCUSTOM = vol.Schema(
+    {
+        vol.Optional("device_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("label_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("area_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
+        vol.Required("payload"): list,
+        vol.Optional("background", default="white"): cv.string,
+        vol.Optional("rotate", default=0): vol.All(vol.Coerce(int), vol.In([0, 90, 180, 270])),
+        vol.Optional("dither", default="ordered"): _str_to_int_enum(DitherMode),
+        vol.Optional("refresh_type", default=0): vol.All(vol.Coerce(int), vol.In([0, 1])),
+        vol.Optional("dry-run", default=False): cv.boolean,
+    }
+)
+
+
 def _get_entry_for_device(call: ServiceCall) -> OpenDisplayConfigEntry:
     """Return the config entry for the device targeted by a service call."""
     device_id: str = call.data[ATTR_DEVICE_ID]
@@ -154,11 +169,71 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
     return await hass.async_add_executor_job(_load_image_from_bytes, data)
 
 
+async def _async_send_image(
+    hass: HomeAssistant,
+    entry: "OpenDisplayConfigEntry",
+    img: PILImage.Image,
+    *,
+    dither_mode: DitherMode,
+    refresh_mode: RefreshMode,
+    fit: FitMode = FitMode.CONTAIN,
+    tone: float | str = "auto",
+    rotate: Rotation = Rotation.ROTATE_0,
+) -> None:
+    """Resolve BLE device, parse encryption key, and upload a PIL image."""
+    address = entry.unique_id
+    assert address is not None
+    ble_device = async_ble_device_from_address(hass, address, connectable=True)
+    if ble_device is None:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="device_not_found",
+            translation_placeholders={"address": address},
+        )
+
+    raw_key = entry.data.get(CONF_ENCRYPTION_KEY)
+    if raw_key is not None and len(raw_key) != 32:
+        entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="authentication_error"
+        )
+    try:
+        encryption_key = bytes.fromhex(raw_key) if raw_key is not None else None
+    except ValueError as err:
+        entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="authentication_error"
+        ) from err
+
+    try:
+        async with OpenDisplayDevice(
+            mac_address=address,
+            ble_device=ble_device,
+            config=entry.runtime_data.device_config,
+            encryption_key=encryption_key,
+        ) as device:
+            await device.upload_image(
+                img,
+                refresh_mode=refresh_mode,
+                dither_mode=dither_mode,
+                tone=tone,
+                fit=fit,
+                rotate=rotate,
+            )
+    except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+        entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="authentication_error"
+        ) from err
+    except OpenDisplayError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="upload_error"
+        ) from err
+
+
 async def _async_upload_image(call: ServiceCall) -> None:
     """Handle the upload_image service call."""
     entry = _get_entry_for_device(call)
-    address = entry.unique_id
-    assert address is not None
 
     image_data: dict[str, Any] = call.data[ATTR_IMAGE]
     rotation: Rotation = call.data[ATTR_ROTATION]
@@ -169,14 +244,6 @@ async def _async_upload_image(call: ServiceCall) -> None:
     tone_compression: float | str = (
         tone_compression_pct / 100.0 if tone_compression_pct is not None else "auto"
     )
-
-    ble_device = async_ble_device_from_address(call.hass, address, connectable=True)
-    if ble_device is None:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="device_not_found",
-            translation_placeholders={"address": address},
-        )
 
     current = asyncio.current_task()
     if (prev := entry.runtime_data.upload_task) is not None and not prev.done():
@@ -198,45 +265,18 @@ async def _async_upload_image(call: ServiceCall) -> None:
         else:
             pil_image = await _async_download_image(call.hass, media.url)
 
-        raw_key = entry.data.get(CONF_ENCRYPTION_KEY)
-        if raw_key is not None and len(raw_key) != 32:
-            entry.async_start_reauth(call.hass)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="authentication_error"
-            )
-        try:
-            encryption_key = bytes.fromhex(raw_key) if raw_key is not None else None
-        except ValueError as err:
-            entry.async_start_reauth(call.hass)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="authentication_error"
-            ) from err
-
-        async with OpenDisplayDevice(
-            mac_address=address,
-            ble_device=ble_device,
-            config=entry.runtime_data.device_config,
-            encryption_key=encryption_key,
-        ) as device:
-            await device.upload_image(
-                pil_image,
-                refresh_mode=refresh_mode,
-                dither_mode=dither_mode,
-                tone=tone_compression,
-                fit=fit_mode,
-                rotate=rotation,
-            )
+        await _async_send_image(
+            call.hass,
+            entry,
+            pil_image,
+            dither_mode=dither_mode,
+            refresh_mode=refresh_mode,
+            fit=fit_mode,
+            tone=tone_compression,
+            rotate=rotation,
+        )
     except asyncio.CancelledError:
         return
-    except (AuthenticationFailedError, AuthenticationRequiredError) as err:
-        entry.async_start_reauth(call.hass)
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="authentication_error"
-        ) from err
-    except OpenDisplayError as err:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="upload_error"
-        ) from err
     finally:
         if entry.runtime_data.upload_task is current:
             entry.runtime_data.upload_task = None
@@ -342,12 +382,10 @@ async def _async_drawcustom(call: ServiceCall) -> None:
     """Handle the drawcustom service call."""
     hass = call.hass
 
-    device_ids: list[str] = list(call.data.get("device_id", []))
-    if isinstance(device_ids, str):
-        device_ids = [device_ids]
-    for label_id in call.data.get("label_id", []):
+    device_ids: list[str] = list(call.data["device_id"])
+    for label_id in call.data["label_id"]:
         device_ids.extend(await _get_device_ids_from_label(hass, label_id))
-    for area_id in call.data.get("area_id", []):
+    for area_id in call.data["area_id"]:
         device_ids.extend(await _get_device_ids_from_area(hass, area_id))
 
     seen: set[str] = set()
@@ -393,69 +431,32 @@ async def _drawcustom_for_device(
     img = await generate_image(
         width=display.pixel_width,
         height=display.pixel_height,
-        elements=call.data.get("payload", []),
-        background=call.data.get("background", "white"),
+        elements=call.data["payload"],
+        background=call.data["background"],
         accent_color=color_scheme.accent_color,
         session=async_get_clientsession(hass),
         data_provider=HADataProvider(hass),
         font_dirs=_font_search_dirs(hass),
     )
 
-    rotate = call.data.get("rotate", 0)
+    rotate: int = call.data["rotate"]
     if rotate:
         img = img.rotate(rotate, expand=True)
 
-    if call.data.get("dry-run", False):
+    if call.data["dry-run"]:
         _LOGGER.info("Drawcustom dry run for device %s", device_id)
         return
 
-    dither_mode: DitherMode = _str_to_int_enum(DitherMode)(
-        call.data.get("dither", "ordered")
+    dither_mode: DitherMode = call.data["dither"]
+    refresh_mode = RefreshMode.FAST if call.data["refresh_type"] == 1 else RefreshMode.FULL
+
+    await _async_send_image(
+        hass,
+        entry,
+        img,
+        dither_mode=dither_mode,
+        refresh_mode=refresh_mode,
     )
-    refresh_type = int(call.data.get("refresh_type", 0))
-    refresh_mode = RefreshMode.FAST if refresh_type == 1 else RefreshMode.FULL
-
-    address = entry.unique_id
-    assert address is not None
-    ble_device = async_ble_device_from_address(hass, address, connectable=True)
-    if ble_device is None:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="device_not_found",
-            translation_placeholders={"address": address},
-        )
-
-    raw_key = entry.data.get(CONF_ENCRYPTION_KEY)
-    if raw_key is not None and len(raw_key) != 32:
-        entry.async_start_reauth(hass)
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="authentication_error"
-        )
-    try:
-        encryption_key = bytes.fromhex(raw_key) if raw_key is not None else None
-    except ValueError as err:
-        entry.async_start_reauth(hass)
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="authentication_error"
-        ) from err
-
-    try:
-        async with OpenDisplayDevice(
-            mac_address=address,
-            ble_device=ble_device,
-            config=entry.runtime_data.device_config,
-            encryption_key=encryption_key,
-        ) as device:
-            await device.upload_image(img, refresh_mode=refresh_mode, dither_mode=dither_mode)
-    except (AuthenticationFailedError, AuthenticationRequiredError) as err:
-        entry.async_start_reauth(hass)
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="authentication_error"
-        ) from err
-    except OpenDisplayError as err:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="upload_error"
-        ) from err
 
 
 @callback
@@ -467,6 +468,4 @@ def async_setup_services(hass: HomeAssistant) -> None:
         _async_upload_image,
         schema=SCHEMA_UPLOAD_IMAGE,
     )
-    hass.services.async_register(DOMAIN, "drawcustom", _async_drawcustom)
-
-## TODO: piggyback off of upload image? also vol for validation in drawcustom
+    hass.services.async_register(DOMAIN, "drawcustom", _async_drawcustom, schema=SCHEMA_DRAWCUSTOM)
