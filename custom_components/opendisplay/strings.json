@@ -83,6 +83,12 @@
     "media_download_error": {
       "message": "Failed to download media: {error}"
     },
+    "multiple_errors": {
+      "message": "Errors occurred for one or more devices:\n{errors}"
+    },
+    "no_targets_specified": {
+      "message": "No target devices specified."
+    },
     "upload_error": {
       "message": "Failed to upload image to the display."
     }
@@ -155,6 +161,36 @@
           "name": "Additional options"
         }
       }
+    },
+    "drawcustom": {
+      "description": "Draws a custom image on one or more OpenDisplay devices.",
+      "fields": {
+        "payload": {
+          "description": "Array of drawing elements.",
+          "name": "Payload"
+        },
+        "background": {
+          "description": "Background fill color.",
+          "name": "Background color"
+        },
+        "rotate": {
+          "description": "Clockwise rotation in degrees.",
+          "name": "Rotation"
+        },
+        "dither": {
+          "description": "Dithering algorithm for color palette conversion.",
+          "name": "Dither mode"
+        },
+        "refresh_type": {
+          "description": "Display refresh mode.",
+          "name": "Refresh type"
+        },
+        "dry-run": {
+          "description": "Generate image without uploading to the device.",
+          "name": "Dry run"
+        }
+      },
+      "name": "Draw custom image"
     }
   }
 }

@@ -68,3 +68,77 @@ upload_image:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+
+drawcustom:
+  name: Draw Custom Image
+  description: Draws a custom image on one or more OpenDisplay devices
+  target:
+  fields:
+    payload:
+      name: Payload
+      description: Drawing elements array (see drawcustom documentation)
+      required: true
+      example: >
+        [{"type": "text", "value": "Hello!", "x": 0, "y": 0, "size": 40}]
+      selector:
+        object:
+    background:
+      name: Background color
+      description: Background color
+      required: true
+      example: white
+      selector:
+        select:
+          options:
+            - "white"
+            - "black"
+            - "accent"
+            - "red"
+            - "yellow"
+    rotate:
+      name: Rotation
+      description: Rotation in degrees (0, 90, 180, 270)
+      required: true
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 270
+          step: 90
+    dither:
+      name: Dither mode
+      description: Dithering algorithm
+      required: true
+      default: "ordered"
+      selector:
+        select:
+          translation_key: dither_mode
+          options:
+            - "none"
+            - "burkes"
+            - "ordered"
+            - "floyd_steinberg"
+            - "atkinson"
+            - "stucki"
+            - "sierra"
+            - "sierra_lite"
+            - "jarvis_judice_ninke"
+    refresh_type:
+      name: Refresh type
+      description: E-paper refresh mode (0=full, 1=fast)
+      required: false
+      default: "0"
+      selector:
+        select:
+          options:
+            - label: "Full (best quality)"
+              value: "0"
+            - label: "Fast"
+              value: "1"
+    dry-run:
+      name: Dry run
+      description: Generate image without sending to device
+      required: true
+      default: false
+      selector:
+        boolean:
