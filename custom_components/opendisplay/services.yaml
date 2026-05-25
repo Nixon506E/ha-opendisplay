@@ -69,6 +69,112 @@ upload_image:
               mode: slider
               unit_of_measurement: "%"
 
+activate_led:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    color:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    brightness:
+      required: false
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 16
+          mode: slider
+    flash_count:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: box
+    loop_delay:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: box
+    inter_delay:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+
+activate_buzzer:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+    frequency_hz:
+      required: false
+      default: 1000
+      selector:
+        number:
+          min: 0
+          max: 12000
+          mode: box
+          unit_of_measurement: Hz
+    duration_ms:
+      required: false
+      default: 100
+      selector:
+        number:
+          min: 5
+          max: 1275
+          mode: box
+          unit_of_measurement: ms
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
 drawcustom:
   name: Draw Custom Image
   description: Draws a custom image on one or more OpenDisplay devices

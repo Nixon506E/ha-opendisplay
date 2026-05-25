@@ -100,6 +100,30 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
 )
 
 
+SCHEMA_ACTIVATE_LED = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional("color", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional("brightness", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
+        vol.Optional("flash_count", default=1): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
+        vol.Optional("loop_delay", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
+        vol.Optional("inter_delay", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+    }
+)
+
+SCHEMA_ACTIVATE_BUZZER = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3)),
+        vol.Optional("frequency_hz", default=1000): vol.All(vol.Coerce(int), vol.Range(min=0, max=12000)),
+        vol.Optional("duration_ms", default=100): vol.All(vol.Coerce(int), vol.Range(min=5, max=1275)),
+        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+    }
+)
+
+
 def _get_entry_for_device(call: ServiceCall) -> OpenDisplayConfigEntry:
     """Return the config entry for the device targeted by a service call."""
     device_id: str = call.data[ATTR_DEVICE_ID]
@@ -472,6 +496,54 @@ async def _drawcustom_for_device(
     )
 
 
+async def _async_activate_led(call: ServiceCall) -> None:
+    """Handle the activate_led service call."""
+    entry = _get_entry_for_device(call)
+    if not entry.runtime_data.device_config.leds:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="no_leds",
+            translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
+        )
+    repeats: int = call.data["repeats"]
+    flash_config = LedFlashConfig.single(
+        color=call.data["color"],
+        brightness=call.data["brightness"],
+        flash_count=call.data["flash_count"],
+        loop_delay_units=call.data["loop_delay"],
+        inter_delay_units=call.data["inter_delay"],
+        group_repeats=None if repeats == 0 else repeats,
+    )
+    instance: int = call.data["instance"]
+
+    async def _led(device: OpenDisplayDevice) -> None:
+        await device.activate_led(instance, flash_config)
+
+    await _async_connect_and_run(call.hass, entry, _led)
+
+
+async def _async_activate_buzzer(call: ServiceCall) -> None:
+    """Handle the activate_buzzer service call."""
+    entry = _get_entry_for_device(call)
+    if not entry.runtime_data.device_config.buzzers:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="no_buzzers",
+            translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
+        )
+    buzz_config = BuzzerActivateConfig.single_tone(
+        frequency_hz=call.data["frequency_hz"],
+        duration_ms=call.data["duration_ms"],
+        repeats=call.data["repeats"],
+    )
+    instance: int = call.data["instance"]
+
+    async def _buzz(device: OpenDisplayDevice) -> None:
+        await device.activate_buzzer(instance, buzz_config)
+
+    await _async_connect_and_run(call.hass, entry, _buzz)
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register OpenDisplay services."""
@@ -482,3 +554,5 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=SCHEMA_UPLOAD_IMAGE,
     )
     hass.services.async_register(DOMAIN, "drawcustom", _async_drawcustom, schema=SCHEMA_DRAWCUSTOM)
+    hass.services.async_register(DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED)
+    hass.services.async_register(DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER)

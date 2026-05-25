@@ -5,6 +5,12 @@
     },
     "drawcustom": {
       "service": "mdi:draw"
+    },
+    "activate_led": {
+      "service": "mdi:led-on"
+    },
+    "activate_buzzer": {
+      "service": "mdi:bell-ring"
     }
   }
 }

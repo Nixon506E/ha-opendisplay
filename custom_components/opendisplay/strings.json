@@ -98,6 +98,12 @@
     "multiple_errors": {
       "message": "Errors occurred for one or more devices:\n{errors}"
     },
+    "no_buzzers": {
+      "message": "Device `{device_id}` has no buzzer configured."
+    },
+    "no_leds": {
+      "message": "Device `{device_id}` has no LEDs configured."
+    },
     "no_targets_specified": {
       "message": "No target devices specified."
     },
@@ -171,6 +177,70 @@
       "sections": {
         "additional_fields": {
           "name": "Additional options"
+        }
+      }
+    },
+    "activate_led": {
+      "name": "Activate LED",
+      "description": "Triggers an LED flash pattern on an OpenDisplay device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The OpenDisplay device."
+        },
+        "instance": {
+          "name": "LED instance",
+          "description": "LED instance index (0-based)."
+        },
+        "color": {
+          "name": "Color",
+          "description": "Color index (device-specific, 0-255)."
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "LED brightness (1-16)."
+        },
+        "flash_count": {
+          "name": "Flash count",
+          "description": "Number of flashes per cycle (0-15)."
+        },
+        "loop_delay": {
+          "name": "Loop delay",
+          "description": "Delay between flashes within a cycle (0-15 units)."
+        },
+        "inter_delay": {
+          "name": "Inter delay",
+          "description": "Delay between cycles (0-255 units)."
+        },
+        "repeats": {
+          "name": "Repeats",
+          "description": "Number of times to repeat the pattern (0 = infinite)."
+        }
+      }
+    },
+    "activate_buzzer": {
+      "name": "Activate buzzer",
+      "description": "Triggers a buzzer tone on an OpenDisplay device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The OpenDisplay device."
+        },
+        "instance": {
+          "name": "Buzzer instance",
+          "description": "Buzzer instance index (0-based)."
+        },
+        "frequency_hz": {
+          "name": "Frequency",
+          "description": "Tone frequency in Hz (0 = silence, 400-12000)."
+        },
+        "duration_ms": {
+          "name": "Duration",
+          "description": "Tone duration in milliseconds (5-1275)."
+        },
+        "repeats": {
+          "name": "Repeats",
+          "description": "Number of times to repeat the tone (1-255)."
         }
       }
     },
