@@ -7,10 +7,9 @@ import logging
 import aiohttp
 from opendisplay.models.firmware import firmware_release_repo
 
-from homeassistant.components.update import UpdateDeviceClass, UpdateEntity
+from homeassistant.components.update import UpdateDeviceClass, UpdateEntity, UpdateEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenDisplayConfigEntry
@@ -22,9 +21,10 @@ PARALLEL_UPDATES = 1
 
 _GITHUB_LATEST = "https://api.github.com/repos/{repo}/releases/latest"
 
-_FIRMWARE_DESCRIPTION = EntityDescription(
+_FIRMWARE_DESCRIPTION = UpdateEntityDescription(
     key="firmware",
     translation_key="firmware",
+    device_class=UpdateDeviceClass.FIRMWARE,
 )
 
 
@@ -39,10 +39,9 @@ async def async_setup_entry(
     )
 
 
-class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity, UpdateEntity):
+class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription], UpdateEntity):
     """Firmware update entity for an OpenDisplay device."""
 
-    _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_latest_version: str | None = None
 
     def __init__(self, coordinator, entry: OpenDisplayConfigEntry) -> None:
