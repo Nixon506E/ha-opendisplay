@@ -43,6 +43,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
     """Firmware update entity for an OpenDisplay device."""
 
     _attr_latest_version: str | None = None
+    should_poll = True  # override coordinator's should_poll=False; GitHub needs regular polling
 
     def __init__(self, coordinator, entry: OpenDisplayConfigEntry) -> None:
         """Initialize the entity."""
@@ -69,6 +70,12 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         if self._firmware_repo and self._attr_latest_version:
             return f"https://github.com/{self._firmware_repo}/releases/tag/{self._attr_latest_version}"
         return None
+
+    async def async_added_to_hass(self) -> None:
+        """Fetch the latest version immediately on entity load."""
+        await super().async_added_to_hass()
+        await self.async_update()
+        self.async_write_ha_state()
 
     async def async_update(self) -> None:
         """Fetch latest firmware version from GitHub."""
