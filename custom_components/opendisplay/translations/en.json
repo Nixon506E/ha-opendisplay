@@ -102,7 +102,7 @@
             "message": "No target devices specified."
         },
         "upload_error": {
-            "message": "Failed to upload image to the display."
+            "message": "Failed to upload to the display: {error}"
         }
     },
     "selector": {

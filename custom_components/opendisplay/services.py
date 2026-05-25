@@ -240,7 +240,9 @@ async def _async_connect_and_run(
         ) from err
     except OpenDisplayError as err:
         raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="upload_error"
+            translation_domain=DOMAIN,
+            translation_key="upload_error",
+            translation_placeholders={"error": str(err)},
         ) from err
 
 
