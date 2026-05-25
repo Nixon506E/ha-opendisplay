@@ -18,12 +18,13 @@ from opendisplay import (
     AuthenticationRequiredError,
     DitherMode,
     FitMode,
+    LedFlashConfig,
+    LedFlashStep,
+    BuzzerActivateConfig,
     OpenDisplayDevice,
     OpenDisplayError,
     RefreshMode,
     Rotation,
-    LedFlashConfig,
-    BuzzerActivateConfig,
 )
 from PIL import Image as PILImage, ImageOps
 import voluptuous as vol
@@ -100,16 +101,43 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
 )
 
 
+def _rgb_to_led_color(value: list[int]) -> int:
+    """Convert [R, G, B] (0-255 each) to packed 8-bit LED color byte (3R 3G 2B)."""
+    r, g, b = value
+    return ((round(r * 7 / 255)) << 5) | ((round(g * 7 / 255)) << 2) | (round(b * 3 / 255))
+
+
+def _ms_to_loop_delay(value: int) -> int:
+    """Convert milliseconds to 4-bit loop delay units (×100 ms each, 0–1500 ms)."""
+    return max(0, min(15, round(value / 100)))
+
+
+def _ms_to_inter_delay(value: int) -> int:
+    """Convert milliseconds to 8-bit inter-delay units (×100 ms each, 0–25500 ms)."""
+    return max(0, min(255, round(value / 100)))
+
+
+def _led_step_fields(n: int, *, color_default: list[int], flash_count_default: int) -> dict:
+    """Return the voluptuous field definitions for one LED step."""
+    return {
+        vol.Optional(f"color{n}", default=color_default): _rgb_to_led_color,
+        vol.Optional(f"flash_count{n}", default=flash_count_default): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=15)
+        ),
+        vol.Optional(f"loop_delay{n}", default=0): vol.All(vol.Coerce(int), _ms_to_loop_delay),
+        vol.Optional(f"inter_delay{n}", default=0): vol.All(vol.Coerce(int), _ms_to_inter_delay),
+    }
+
+
 SCHEMA_ACTIVATE_LED = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
-        vol.Optional("color", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional("brightness", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
-        vol.Optional("flash_count", default=1): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
-        vol.Optional("loop_delay", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
-        vol.Optional("inter_delay", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
         vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        **_led_step_fields(1, color_default=[255, 0, 0], flash_count_default=1),
+        **_led_step_fields(2, color_default=[0, 255, 0], flash_count_default=0),
+        **_led_step_fields(3, color_default=[0, 0, 255], flash_count_default=0),
     }
 )
 
@@ -508,12 +536,27 @@ async def _async_activate_led(call: ServiceCall) -> None:
             translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
         )
     repeats: int = call.data["repeats"]
-    flash_config = LedFlashConfig.single(
-        color=call.data["color"],
+    flash_config = LedFlashConfig(
+        mode=1,
         brightness=call.data["brightness"],
-        flash_count=call.data["flash_count"],
-        loop_delay_units=call.data["loop_delay"],
-        inter_delay_units=call.data["inter_delay"],
+        step1=LedFlashStep(
+            color=call.data["color1"],
+            flash_count=call.data["flash_count1"],
+            loop_delay_units=call.data["loop_delay1"],
+            inter_delay_units=call.data["inter_delay1"],
+        ),
+        step2=LedFlashStep(
+            color=call.data["color2"],
+            flash_count=call.data["flash_count2"],
+            loop_delay_units=call.data["loop_delay2"],
+            inter_delay_units=call.data["inter_delay2"],
+        ),
+        step3=LedFlashStep(
+            color=call.data["color3"],
+            flash_count=call.data["flash_count3"],
+            loop_delay_units=call.data["loop_delay3"],
+            inter_delay_units=call.data["inter_delay3"],
+        ),
         group_repeats=None if repeats == 0 else repeats,
     )
     instance: int = call.data["instance"]

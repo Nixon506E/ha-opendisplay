@@ -84,14 +84,6 @@ activate_led:
           min: 0
           max: 255
           mode: box
-    color:
-      required: false
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 255
-          mode: box
     brightness:
       required: false
       default: 8
@@ -100,30 +92,6 @@ activate_led:
           min: 1
           max: 16
           mode: slider
-    flash_count:
-      required: false
-      default: 1
-      selector:
-        number:
-          min: 0
-          max: 15
-          mode: box
-    loop_delay:
-      required: false
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 15
-          mode: box
-    inter_delay:
-      required: false
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 255
-          mode: box
     repeats:
       required: false
       default: 1
@@ -131,7 +99,106 @@ activate_led:
         number:
           min: 0
           max: 255
-          mode: box
+          mode: slider
+    color1:
+      required: false
+      default: [255, 0, 0]
+      selector:
+        color_rgb:
+    flash_count1:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay1:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay1:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    color2:
+      required: false
+      default: [0, 255, 0]
+      selector:
+        color_rgb:
+    flash_count2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    color3:
+      required: false
+      default: [0, 0, 255]
+      selector:
+        color_rgb:
+    flash_count3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
 
 activate_buzzer:
   fields:

@@ -203,29 +203,61 @@
           "name": "LED instance",
           "description": "LED instance index (0-based)."
         },
-        "color": {
-          "name": "Color",
-          "description": "Color index (device-specific, 0-255)."
-        },
         "brightness": {
           "name": "Brightness",
           "description": "LED brightness (1-16)."
         },
-        "flash_count": {
-          "name": "Flash count",
-          "description": "Number of flashes per cycle (0-15)."
-        },
-        "loop_delay": {
-          "name": "Loop delay",
-          "description": "Delay between flashes within a cycle (0-15 units)."
-        },
-        "inter_delay": {
-          "name": "Inter delay",
-          "description": "Delay between cycles (0-255 units)."
-        },
         "repeats": {
           "name": "Repeats",
-          "description": "Number of times to repeat the pattern (0 = infinite)."
+          "description": "Number of times to repeat the full pattern (0 = infinite)."
+        },
+        "color1": {
+          "name": "Color 1",
+          "description": "First step color."
+        },
+        "flash_count1": {
+          "name": "Flash count 1",
+          "description": "Number of flashes for the first step (0 skips this step)."
+        },
+        "loop_delay1": {
+          "name": "Flash delay 1",
+          "description": "Delay between flashes in the first step."
+        },
+        "inter_delay1": {
+          "name": "Step delay 1",
+          "description": "Delay after the first step before moving to the next."
+        },
+        "color2": {
+          "name": "Color 2",
+          "description": "Second step color (omit or set flash count to 0 to skip)."
+        },
+        "flash_count2": {
+          "name": "Flash count 2",
+          "description": "Number of flashes for the second step (0 skips this step)."
+        },
+        "loop_delay2": {
+          "name": "Flash delay 2",
+          "description": "Delay between flashes in the second step."
+        },
+        "inter_delay2": {
+          "name": "Step delay 2",
+          "description": "Delay after the second step before moving to the next."
+        },
+        "color3": {
+          "name": "Color 3",
+          "description": "Third step color (omit or set flash count to 0 to skip)."
+        },
+        "flash_count3": {
+          "name": "Flash count 3",
+          "description": "Number of flashes for the third step (0 skips this step)."
+        },
+        "loop_delay3": {
+          "name": "Flash delay 3",
+          "description": "Delay between flashes in the third step."
+        },
+        "inter_delay3": {
+          "name": "Step delay 3",
+          "description": "Delay after the third step before repeating."
         }
       }
     },
