@@ -1,7 +1,7 @@
 """Service registration for the OpenDisplay integration."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 import contextlib
 from datetime import timedelta
 from enum import IntEnum
@@ -22,6 +22,8 @@ from opendisplay import (
     OpenDisplayError,
     RefreshMode,
     Rotation,
+    LedFlashConfig,
+    BuzzerActivateConfig,
 )
 from PIL import Image as PILImage, ImageOps
 import voluptuous as vol
@@ -169,18 +171,12 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
     return await hass.async_add_executor_job(_load_image_from_bytes, data)
 
 
-async def _async_send_image(
+async def _async_connect_and_run(
     hass: HomeAssistant,
     entry: "OpenDisplayConfigEntry",
-    img: PILImage.Image,
-    *,
-    dither_mode: DitherMode,
-    refresh_mode: RefreshMode,
-    fit: FitMode = FitMode.CONTAIN,
-    tone: float | str = "auto",
-    rotate: Rotation = Rotation.ROTATE_0,
+    action: Callable[[OpenDisplayDevice], Awaitable[None]],
 ) -> None:
-    """Resolve BLE device, parse encryption key, and upload a PIL image."""
+    """Resolve BLE device, open a connection, run action, handle auth errors."""
     address = entry.unique_id
     assert address is not None
     ble_device = async_ble_device_from_address(hass, address, connectable=True)
@@ -212,14 +208,7 @@ async def _async_send_image(
             config=entry.runtime_data.device_config,
             encryption_key=encryption_key,
         ) as device:
-            await device.upload_image(
-                img,
-                refresh_mode=refresh_mode,
-                dither_mode=dither_mode,
-                tone=tone,
-                fit=fit,
-                rotate=rotate,
-            )
+            await action(device)
     except (AuthenticationFailedError, AuthenticationRequiredError) as err:
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
@@ -229,6 +218,30 @@ async def _async_send_image(
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="upload_error"
         ) from err
+
+
+async def _async_send_image(
+    hass: HomeAssistant,
+    entry: "OpenDisplayConfigEntry",
+    img: PILImage.Image,
+    *,
+    dither_mode: DitherMode,
+    refresh_mode: RefreshMode,
+    fit: FitMode = FitMode.CONTAIN,
+    tone: float | str = "auto",
+    rotate: Rotation = Rotation.ROTATE_0,
+) -> None:
+    """Upload a PIL image to the device."""
+    async def _upload(device: OpenDisplayDevice) -> None:
+        await device.upload_image(
+            img,
+            refresh_mode=refresh_mode,
+            dither_mode=dither_mode,
+            tone=tone,
+            fit=fit,
+            rotate=rotate,
+        )
+    await _async_connect_and_run(hass, entry, _upload)
 
 
 async def _async_upload_image(call: ServiceCall) -> None:
