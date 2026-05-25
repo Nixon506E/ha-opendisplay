@@ -80,6 +80,11 @@
       "battery_voltage": {
         "name": "Battery voltage"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   },
   "exceptions": {

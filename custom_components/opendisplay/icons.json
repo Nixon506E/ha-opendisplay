@@ -1,4 +1,11 @@
 {
+  "entity": {
+    "update": {
+      "firmware": {
+        "default": "mdi:chip"
+      }
+    }
+  },
   "services": {
     "upload_image": {
       "service": "mdi:image-move"
