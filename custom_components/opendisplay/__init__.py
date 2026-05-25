@@ -33,7 +33,7 @@ from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-_BASE_PLATFORMS: list[Platform] = []
+_BASE_PLATFORMS: list[Platform] = [Platform.SENSOR]
 _FLEX_PLATFORMS = [Platform.EVENT, Platform.SENSOR, Platform.UPDATE]
 
 

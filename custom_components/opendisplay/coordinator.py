@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import logging
+import time
 
 from opendisplay import MANUFACTURER_ID, AdvertisementTracker, parse_advertisement
 from opendisplay.models.advertisement import (
@@ -30,6 +31,8 @@ class OpenDisplayUpdate:
 
     address: str
     advertisement: AdvertisementData
+    rssi: int | None = None
+    last_seen: float | None = None
     button_events: list[ButtonChangeEvent] = field(default_factory=list)
     touch_events: list[TouchChangeEvent] = field(default_factory=list)
 
@@ -94,6 +97,8 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
             self.data = OpenDisplayUpdate(
                 address=service_info.address,
                 advertisement=advertisement,
+                rssi=service_info.rssi,
+                last_seen=time.time(),
                 button_events=button_events,
                 touch_events=touch_events,
             )

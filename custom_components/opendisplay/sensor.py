@@ -2,9 +2,9 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from opendisplay import voltage_to_percent
-from opendisplay.models.advertisement import AdvertisementData
 from opendisplay.models.enums import CapacityEstimator, PowerMode
 
 from homeassistant.components.sensor import (
@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
     UnitOfElectricPotential,
     UnitOfTemperature,
@@ -23,6 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenDisplayConfigEntry
+from .coordinator import OpenDisplayUpdate
 from .entity import OpenDisplayEntity
 
 PARALLEL_UPDATES = 0
@@ -32,7 +34,7 @@ PARALLEL_UPDATES = 0
 class OpenDisplaySensorEntityDescription(SensorEntityDescription):
     """Describes an OpenDisplay sensor entity."""
 
-    value_fn: Callable[[AdvertisementData], float | int | None]
+    value_fn: Callable[[OpenDisplayUpdate], float | int | str | datetime | None]
 
 
 _TEMPERATURE_DESCRIPTION = OpenDisplaySensorEntityDescription(
@@ -42,7 +44,7 @@ _TEMPERATURE_DESCRIPTION = OpenDisplaySensorEntityDescription(
     state_class=SensorStateClass.MEASUREMENT,
     entity_category=EntityCategory.DIAGNOSTIC,
     entity_registry_enabled_default=False,
-    value_fn=lambda adv: adv.temperature_c,
+    value_fn=lambda upd: upd.advertisement.temperature_c,
 )
 
 _BATTERY_POWER_MODES = {PowerMode.BATTERY, PowerMode.SOLAR}
@@ -55,7 +57,31 @@ _BATTERY_VOLTAGE_DESCRIPTION = OpenDisplaySensorEntityDescription(
     state_class=SensorStateClass.MEASUREMENT,
     entity_category=EntityCategory.DIAGNOSTIC,
     entity_registry_enabled_default=False,
-    value_fn=lambda adv: adv.battery_mv,
+    value_fn=lambda upd: upd.advertisement.battery_mv,
+)
+
+_RSSI_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="rssi",
+    translation_key="rssi",
+    device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda upd: upd.rssi,
+)
+
+_LAST_SEEN_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="last_seen",
+    translation_key="last_seen",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda upd: (
+        datetime.fromtimestamp(upd.last_seen, tz=timezone.utc)
+        if upd.last_seen is not None
+        else None
+    ),
 )
 
 
@@ -67,7 +93,11 @@ async def async_setup_entry(
     """Set up OpenDisplay sensor entities."""
     coordinator = entry.runtime_data.coordinator
     power_config = entry.runtime_data.device_config.power
-    descriptions: list[OpenDisplaySensorEntityDescription] = [_TEMPERATURE_DESCRIPTION]
+    descriptions: list[OpenDisplaySensorEntityDescription] = [
+        _TEMPERATURE_DESCRIPTION,
+        _RSSI_DESCRIPTION,
+        _LAST_SEEN_DESCRIPTION,
+    ]
 
     if power_config.power_mode_enum in _BATTERY_POWER_MODES:
         capacity_estimator = power_config.capacity_estimator or CapacityEstimator.LI_ION
@@ -79,8 +109,8 @@ async def async_setup_entry(
                 native_unit_of_measurement=PERCENTAGE,
                 state_class=SensorStateClass.MEASUREMENT,
                 entity_category=EntityCategory.DIAGNOSTIC,
-                value_fn=lambda adv: voltage_to_percent(
-                    adv.battery_mv, capacity_estimator
+                value_fn=lambda upd: voltage_to_percent(
+                    upd.advertisement.battery_mv, capacity_estimator
                 ),
             ),
         ]
@@ -97,8 +127,8 @@ class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
     entity_description: OpenDisplaySensorEntityDescription
 
     @property
-    def native_value(self) -> float | int | None:
+    def native_value(self) -> float | int | str | datetime | None:
         """Return the sensor value."""
         if self.coordinator.data is None:
             return None
-        return self.entity_description.value_fn(self.coordinator.data.advertisement)
+        return self.entity_description.value_fn(self.coordinator.data)
