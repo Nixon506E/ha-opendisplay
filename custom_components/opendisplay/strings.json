@@ -51,6 +51,11 @@
     }
   },
   "entity": {
+    "image": {
+      "content": {
+        "name": "Display content"
+      }
+    },
     "event": {
       "button": {
         "name": "Button {number}",

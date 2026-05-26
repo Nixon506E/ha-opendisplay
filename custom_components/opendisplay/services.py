@@ -39,13 +39,14 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.network import get_url
 from homeassistant.helpers.selector import MediaSelector, MediaSelectorConfig
 
 if TYPE_CHECKING:
     from . import OpenDisplayConfigEntry
 
-from .const import CONF_ENCRYPTION_KEY, DOMAIN
+from .const import CONF_ENCRYPTION_KEY, DOMAIN, SIGNAL_IMAGE_UPDATED
 
 ATTR_IMAGE = "image"
 ATTR_ROTATION = "rotation"
@@ -188,6 +189,13 @@ def _get_entry_for_device(call: ServiceCall) -> OpenDisplayConfigEntry:
     return entry
 
 
+def _pil_to_jpeg(img: PILImage.Image) -> bytes:
+    """Encode a PIL image as JPEG bytes."""
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
 def _load_image(path: str) -> PILImage.Image:
     """Load an image from disk and apply EXIF orientation."""
     image = PILImage.open(path)
@@ -296,6 +304,8 @@ async def _async_send_image(
             rotate=rotate,
         )
     await _async_connect_and_run(hass, entry, _upload)
+    jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
+    async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
 
 
 async def _async_upload_image(call: ServiceCall) -> None:
@@ -512,6 +522,8 @@ async def _drawcustom_for_device(
 
     if call.data["dry-run"]:
         _LOGGER.info("Drawcustom dry run for device %s", device_id)
+        jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
+        async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
         return
 
     dither_mode: DitherMode = call.data["dither"]
