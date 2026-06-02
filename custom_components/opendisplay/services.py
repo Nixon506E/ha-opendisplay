@@ -68,6 +68,41 @@ def _str_to_int_enum(enum_class: type[IntEnum]) -> Callable[[str], Any]:
     return validate
 
 
+def _dither_value(value: Any) -> DitherMode:
+    """Accept new dither names ("ordered") and legacy numeric values (0/1/2...)."""
+    if isinstance(value, (int, float)) or (
+        isinstance(value, str) and value.lstrip("-").isdigit()
+    ):
+        try:
+            return DitherMode(int(value))
+        except ValueError as err:
+            raise vol.Invalid(f"Invalid dither value: {value}") from err
+    return _str_to_int_enum(DitherMode)(value)
+
+
+def _refresh_type_value(value: Any) -> RefreshMode:
+    """Accept names ("full"/"fast") and legacy numeric values.
+
+    `partial` is not implemented yet, so it is not offered and any partial-ish
+    input (legacy 2/3, or an explicit "partial") falls back to fast.
+    """
+    if isinstance(value, (int, float)) or (
+        isinstance(value, str) and value.lstrip("-").isdigit()
+    ):
+        n = int(value)
+        if n in (2, 3):  # legacy partial / partial2 -> fast (partial not implemented)
+            return RefreshMode.FAST
+        try:
+            mode = RefreshMode(n)
+        except ValueError as err:
+            raise vol.Invalid(f"Invalid refresh_type: {value}") from err
+    else:
+        mode = _str_to_int_enum(RefreshMode)(value)
+    if mode is RefreshMode.PARTIAL:  # reserved for the future, not implemented yet
+        return RefreshMode.FAST
+    return mode
+
+
 SCHEMA_UPLOAD_IMAGE = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
@@ -95,10 +130,11 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
         vol.Required("payload"): list,
         vol.Optional("background", default="white"): cv.string,
         vol.Optional("rotate", default=0): vol.All(vol.Coerce(int), vol.In([0, 90, 180, 270])),
-        vol.Optional("dither", default="ordered"): _str_to_int_enum(DitherMode),
-        vol.Optional("refresh_type", default=0): vol.All(vol.Coerce(int), vol.In([0, 1])),
+        vol.Optional("dither", default="ordered"): _dither_value,
+        vol.Optional("refresh_type", default="full"): _refresh_type_value,
         vol.Optional("dry-run", default=False): cv.boolean,
-    }
+    },
+    extra=vol.REMOVE_EXTRA,  # silently drop legacy keys (ttl, preload_type, preload_lut, ...)
 )
 
 
@@ -527,7 +563,7 @@ async def _drawcustom_for_device(
         return
 
     dither_mode: DitherMode = call.data["dither"]
-    refresh_mode = RefreshMode.FAST if call.data["refresh_type"] == 1 else RefreshMode.FULL
+    refresh_mode: RefreshMode = call.data["refresh_type"]
 
     await _async_send_image(
         hass,
