@@ -89,6 +89,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         self._firmware_repo = firmware_release_repo(ic_type)
         self._ble_address: str = entry.unique_id or ""
         self._entry = entry
+        self._installing = False
 
         if ic_type in _OTA_SUPPORTED_IC_TYPES:
             self._attr_supported_features = (
@@ -98,6 +99,20 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
             )
         else:
             self._attr_supported_features = UpdateEntityFeature.RELEASE_NOTES
+
+    @property
+    def available(self) -> bool:
+        """Stay available while a firmware update is installing.
+
+        During an update the device leaves app mode — an nRF device even
+        re-advertises at a different address while in the bootloader — so the
+        passive-BLE availability tracker would otherwise mark this entity
+        unavailable mid-install and hide the progress, making a working update
+        look like a silent failure. The install runs on its own BLE connection
+        and is unaffected by the app-mode advertisement stopping, so keep the
+        entity available until it finishes.
+        """
+        return self._installing or super().available
 
     @property
     def release_url(self) -> str | None:
@@ -150,6 +165,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
                 f"No BLE OTA asset available for IC type {self._ic_type}"
             )
 
+        self._installing = True
         self._attr_in_progress = True
         self.async_write_ha_state()
 
@@ -171,26 +187,47 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
             ble_device = async_ble_device_from_address(
                 self.hass, self._ble_address, connectable=True
             )
-            if ble_device is None:
+            # An nRF device already in DFU advertises at MAC+1, so its app-mode
+            # address resolves to None — that's expected and the nRF branch below
+            # resumes straight to the DFU flash. For other ICs a missing device
+            # genuinely means unreachable.
+            if ble_device is None and self._ic_type not in _NRF_IC_TYPES:
                 raise HomeAssistantError(
                     "Device not reachable over Bluetooth; bring it within range and retry"
                 )
 
             if self._ic_type in _NRF_IC_TYPES:
-                _on_log("Connecting to trigger DFU bootloader…")
-                async with OpenDisplayDevice(
-                    mac_address=self._ble_address,
-                    ble_device=ble_device,
-                    encryption_key=_get_encryption_key(self._entry),
-                ) as device:
-                    await device.trigger_dfu_bootloader()
+                # Trigger from app mode when the device is reachable there. If it's
+                # already in DFU (ble_device is None, or the app-mode connect fails
+                # because a prior update was interrupted), skip the trigger and
+                # resume directly to the DFU flash — so a failed update can simply
+                # be retried without manual recovery (mirrors the EFR32 path below).
+                if ble_device is not None:
+                    try:
+                        _on_log("Connecting to trigger DFU bootloader…")
+                        async with OpenDisplayDevice(
+                            mac_address=self._ble_address,
+                            ble_device=ble_device,
+                            encryption_key=_get_encryption_key(self._entry),
+                        ) as device:
+                            await device.trigger_dfu_bootloader()
+                        _on_log("Trigger sent — waiting for DFU device to appear (up to 30 s)…")
+                    except BLEConnectionError as err:
+                        _on_log(
+                            f"App-mode connect failed ({err}); device is likely already "
+                            "in DFU — looking for the DFU device directly."
+                        )
+                else:
+                    _on_log(
+                        "Device not advertising in app mode — assuming it is already in "
+                        "DFU; looking for the DFU device directly."
+                    )
 
-                _on_log("Trigger sent — waiting for DFU device to appear (up to 30 s)…")
                 dfu_device = await find_nrf_dfu_device(self._ble_address)
                 if dfu_device is None:
                     raise HomeAssistantError(
-                        "DFU device not found within 30 s after bootloader trigger. "
-                        "Ensure the device is within BLE range and try again."
+                        "DFU device not found within 30 s. Ensure the device is within "
+                        "BLE range and try again."
                     )
                 _on_log(f"Found DFU device at {dfu_device.address}")
                 await perform_nrf_dfu(
@@ -251,6 +288,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         except (OTAError, BLEConnectionError) as err:
             raise HomeAssistantError(f"Firmware update failed: {err}") from err
         finally:
+            self._installing = False
             self._attr_in_progress = False
             self.async_write_ha_state()
 
