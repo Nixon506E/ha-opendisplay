@@ -94,6 +94,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
         ) as device:
             fw = await device.read_firmware_version()
             is_flex = device.is_flex
+            # Capture while connected: landing_url() reads the advertised name.
+            landing_url = device.landing_url()
     except (AuthenticationFailedError, AuthenticationRequiredError) as err:
         raise ConfigEntryAuthFailed(
             f"Encryption key rejected by OpenDisplay device: {err}"
@@ -130,9 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
         hw_version=f"{manufacturer.board_type_name or manufacturer.board_type}"
         if is_flex
         else None,
-        configuration_url="https://opendisplay.org/firmware/config/"
-        if is_flex
-        else None,
+        configuration_url=landing_url,
     )
 
     entry.runtime_data = OpenDisplayRuntimeData(
