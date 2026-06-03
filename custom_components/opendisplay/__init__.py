@@ -127,10 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
         manufacturer=manufacturer.manufacturer_name,
         model=f"{size} {color_scheme}",
         sw_version=f"{fw['major']}.{fw['minor']}",
-        hw_version=(
-            f"{manufacturer.board_type_name or manufacturer.board_type}"
-            f" rev. {manufacturer.board_revision}"
-        )
+        hw_version=f"{manufacturer.board_type_name or manufacturer.board_type}"
         if is_flex
         else None,
         configuration_url="https://opendisplay.org/firmware/config/"
