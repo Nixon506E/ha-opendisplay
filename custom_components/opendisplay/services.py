@@ -106,8 +106,8 @@ def _refresh_type_value(value: Any) -> RefreshMode:
 SCHEMA_UPLOAD_IMAGE = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_IMAGE): MediaSelector(
-            MediaSelectorConfig(accept=["image/*"])
+        vol.Required(ATTR_IMAGE): vol.Any(
+            cv.url, MediaSelector(MediaSelectorConfig(accept=["image/*"]))
         ),
         vol.Optional(ATTR_ROTATION, default=Rotation.ROTATE_0): vol.All(
             vol.Coerce(int), vol.Coerce(Rotation)
@@ -348,7 +348,7 @@ async def _async_upload_image(call: ServiceCall) -> None:
     """Handle the upload_image service call."""
     entry = _get_entry_for_device(call)
 
-    image_data: dict[str, Any] = call.data[ATTR_IMAGE]
+    image_data: dict[str, Any] | str = call.data[ATTR_IMAGE]
     rotation: Rotation = call.data[ATTR_ROTATION]
     dither_mode: DitherMode = call.data[ATTR_DITHER_MODE]
     refresh_mode: RefreshMode = call.data[ATTR_REFRESH_MODE]
@@ -357,6 +357,17 @@ async def _async_upload_image(call: ServiceCall) -> None:
     tone_compression: float | str = (
         tone_compression_pct / 100.0 if tone_compression_pct is not None else "auto"
     )
+
+    # A plain URL (e.g. an automation pushing a rendered snapshot) must be
+    # explicitly allowlisted; media-source items are already trusted.
+    if isinstance(image_data, str) and not call.hass.config.is_allowed_external_url(
+        image_data
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="url_not_allowed",
+            translation_placeholders={"url": image_data},
+        )
 
     current = asyncio.current_task()
     if (prev := entry.runtime_data.upload_task) is not None and not prev.done():
@@ -367,16 +378,18 @@ async def _async_upload_image(call: ServiceCall) -> None:
     entry.runtime_data.upload_task = current
 
     try:
-        media = await async_resolve_media(
-            call.hass, image_data["media_content_id"], None
-        )
-
-        if media.path is not None:
-            pil_image = await call.hass.async_add_executor_job(
-                _load_image, str(media.path)
-            )
+        if isinstance(image_data, str):
+            pil_image = await _async_download_image(call.hass, image_data)
         else:
-            pil_image = await _async_download_image(call.hass, media.url)
+            media = await async_resolve_media(
+                call.hass, image_data["media_content_id"], None
+            )
+            if media.path is not None:
+                pil_image = await call.hass.async_add_executor_job(
+                    _load_image, str(media.path)
+                )
+            else:
+                pil_image = await _async_download_image(call.hass, media.url)
 
         await _async_send_image(
             call.hass,
