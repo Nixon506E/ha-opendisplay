@@ -18,7 +18,7 @@ from opendisplay import (
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
@@ -147,6 +147,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
     )
     entry.async_on_unload(coordinator.async_start())
 
+    @callback
+    def _schedule_reboot_reload() -> None:
+        """Re-read firmware/config after the device signals a reboot."""
+        hass.async_create_task(_async_reload_after_reboot(hass, entry))
+
+    entry.async_on_unload(coordinator.async_subscribe_reboot(_schedule_reboot_reload))
+
     return True
 
 
@@ -156,6 +163,24 @@ def _get_platforms(runtime_data: OpenDisplayRuntimeData) -> list[Platform]:
     if not runtime_data.is_flex and runtime_data.device_config.touch_controllers:
         platforms.append(Platform.EVENT)
     return platforms
+
+
+async def _async_reload_after_reboot(
+    hass: HomeAssistant, entry: OpenDisplayConfigEntry
+) -> None:
+    """Re-read firmware/config after a device reboot by reloading the entry.
+
+    Triggered by the coordinator when the advertised reboot flag goes
+    False -> True. Reloading re-runs async_setup_entry, which reconnects (clearing
+    the device's reboot flag), re-reads firmware + config, and rebuilds device
+    info and platforms. Defers until any in-progress image upload finishes so an
+    unrelated reboot detection does not abort the user's upload.
+    """
+    runtime = entry.runtime_data
+    upload_task = runtime.upload_task if runtime is not None else None
+    if upload_task is not None and not upload_task.done():
+        await asyncio.gather(upload_task, return_exceptions=True)
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(

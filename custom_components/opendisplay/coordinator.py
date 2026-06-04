@@ -20,7 +20,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothDataUpdateCoordinator,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -52,6 +52,26 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
         self.data: OpenDisplayUpdate | None = None
         self._tracker: AdvertisementTracker = AdvertisementTracker()
         self.touch_trackers: list[TouchTracker] = []
+        # Subscribers notified once when the advertised reboot flag goes
+        # False -> True (the device rebooted since we last talked to it).
+        self._reboot_callbacks: set[CALLBACK_TYPE] = set()
+        # Reboot-flag edge detection: the device sets the advertised reboot flag
+        # on boot and clears it on first connect. None until the first v1 advert.
+        self._last_reboot_flag: bool | None = None
+
+    @callback
+    def async_subscribe_reboot(self, callback_: CALLBACK_TYPE) -> CALLBACK_TYPE:
+        """Subscribe to device reboots (advertised reboot flag False -> True).
+
+        Returns an unsubscribe callback.
+        """
+        self._reboot_callbacks.add(callback_)
+
+        @callback
+        def _unsubscribe() -> None:
+            self._reboot_callbacks.discard(callback_)
+
+        return _unsubscribe
 
     @callback
     def _async_handle_unavailable(
@@ -88,6 +108,7 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
                 exc_info=True,
             )
         else:
+            self._check_reboot_flag(advertisement)
             button_events = self._tracker.update(service_info.address, advertisement)
             touch_events: list[TouchChangeEvent] = []
             for touch_tracker in self.touch_trackers:
@@ -104,3 +125,26 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
             )
 
         super()._async_handle_bluetooth_event(service_info, change)
+
+    @callback
+    def _check_reboot_flag(self, advertisement: AdvertisementData) -> None:
+        """Notify on a reboot, detected as a reboot-flag False -> True edge.
+
+        The device sets the advertised reboot flag on boot and clears it on the
+        first BLE connection. We react only to a False -> True transition: the
+        initial observation (None -> True) is ignored because setup already
+        synced this boot, and a flag that stays True (True -> True, e.g. a device
+        that never clears it) is self-guarding and won't fire again.
+        """
+        reboot_flag = advertisement.reboot_flag
+        if reboot_flag is None:
+            # Legacy advertisement: no reboot flag, leave previous state intact.
+            return
+
+        previous = self._last_reboot_flag
+        self._last_reboot_flag = reboot_flag
+
+        if reboot_flag and previous is False and self._reboot_callbacks:
+            _LOGGER.info("%s: Device rebooted since last connection", self.address)
+            for reboot_callback in list(self._reboot_callbacks):
+                reboot_callback()
