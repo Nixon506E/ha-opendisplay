@@ -565,9 +565,23 @@ async def _drawcustom_for_device(
     cs = display.color_scheme_enum
     color_scheme = cs if isinstance(cs, ColorScheme) else ColorScheme.from_value(cs)
 
+    rotate: int = call.data["rotate"]
+    # The payload is authored against the final on-screen orientation. The device
+    # applies (base + rotate) and fits the result to its native pixel grid, so when
+    # the effective rotation transposes the axes (90/270) we render the canvas
+    # transposed too. That keeps the device-side fit a 1:1 no-op instead of
+    # scaling/centering a mismatched-aspect image. Rotation itself is left to the
+    # device (consistent with the upload_image path) rather than rotating here.
+    base = display.rotation_enum
+    base_deg = base.value if isinstance(base, Rotation) else 0
+    if (base_deg + rotate) % 360 in (90, 270):
+        gen_width, gen_height = display.pixel_height, display.pixel_width
+    else:
+        gen_width, gen_height = display.pixel_width, display.pixel_height
+
     img = await generate_image(
-        width=display.pixel_width,
-        height=display.pixel_height,
+        width=gen_width,
+        height=gen_height,
         elements=call.data["payload"],
         background=call.data["background"],
         accent_color=color_scheme.accent_color,
@@ -575,10 +589,6 @@ async def _drawcustom_for_device(
         data_provider=HADataProvider(hass),
         font_dirs=_font_search_dirs(hass),
     )
-
-    rotate: int = call.data["rotate"]
-    if rotate:
-        img = img.rotate(rotate, expand=True)
 
     if call.data["dry-run"]:
         _LOGGER.info("Drawcustom dry run for device %s", device_id)
@@ -595,6 +605,7 @@ async def _drawcustom_for_device(
         img,
         dither_mode=dither_mode,
         refresh_mode=refresh_mode,
+        rotate=Rotation(rotate),
     )
 
 
