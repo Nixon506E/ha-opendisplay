@@ -2,23 +2,21 @@
 
 With `drawcustom`, you can create an image in Home Assistant and send the rendered image to an OEPL AP.
 
-## List of draw types
-- [Debug Grid](#debug_grid)
-- [Text](#text)
-- [Multiline Text](#multiline-text)
-- [Line](#line)
-- [Rectangle](#rectangle)
-- [Rectangle Pattern](#rectangle-pattern)
-- [Polygon](#polygon)
-- [Circle](#circle)
-- [Ellipse](#ellipse)
-- [Arc/ Pie Slice](#arc-pie-slice)
-- [Icon](#icon)
-- [Icon Sequence](#icon-sequence)
-- [Download Image](#download-image)
-- [QR Code](#qr-code)
-- [Plot](#plot)
-- [Progress Bar](#progress-bar)
+> **Element reference lives in [odl-renderer](https://github.com/OpenDisplay/odl-renderer).**
+> drawcustom renders the payload with the odl-renderer library, which owns every element
+> type and shared field (`visible`, `rotation`, `mirror`, `pivot`, anchors, colors,
+> coordinates). For the full, authoritative field reference see the
+> [odl-renderer README](https://github.com/OpenDisplay/odl-renderer/blob/odl-renderer-v0.5.10/README.md).
+> This page documents only what the Home Assistant integration adds on top: the service
+> call, fonts, templating, and entity-backed plots.
+
+## Contents
+- [Basic Usage](#basic-usage)
+- [Service Options](#service-options)
+- [Color Support](#color-support)
+- [Font support](#font-support)
+- [Element types](#element-types)
+- [Plot (entity-backed)](#plot-entity-backed)
 - [Template Examples](#template-examples)
 
 ## Basic Usage
@@ -187,446 +185,54 @@ Place fonts in /config/www/fonts/ or /media/fonts/ or provide absolute path.
 Falling back to default font.
 ```
 
-## Types
+## Element types
 
-### debug_grid
-The `debug_grid` draw type overlays a grid on the image canvas to help with layout debugging.
+The payload is a list of drawing elements rendered by
+[odl-renderer](https://github.com/OpenDisplay/odl-renderer). The integration passes
+your elements through unchanged and additionally expands Home Assistant templates in
+field values, resolves entity-backed data for [plots](#plot-entity-backed), and maps
+colors / applies dithering for the target display.
 
-```yaml
-- type: debug_grid
-```
-| Parameter         | Description                                | Required | Default            | Notes               |
-|-------------------|--------------------------------------------|----------|--------------------|---------------------|
-| `spacing`         | Distance between grid lines                | No       | `20`               | Pixels              |
-| `line_color`      | Color of the grid lines                    | No       | `black`            | Any supported color |
-| `dashed`          | Whether to use dashed lines for the grid   | No       | `True`             | `True`, `False`     |
-| `dash_length`     | Length of dash segments (if dashed)        | No       | `2`                | Pixels              |
-| `space_length`    | Space between the dashes (if dashed)       | No       | `4`                | Pixels              |
-| `show_labels`     | Whether to label coordinates at grid lines | No       | `True`             | `True`, `False`     |
-| `label_step`      | Frequency of labels (every Nth) grid line  | No       | `40` (2*`spacing`) | Pixels              |
-| `label_color`     | Color of the coordinate labels             | No       | `black`            | Any supported color |
-| `label_font_size` | Font size for coordinate labels            | No       | `12`               | Pixels              |
-| `font`            | Font for labels                            | No       | `ppb.ttf`          | -                   |
-
-### text
-Draws text.
-
-```yaml
-- type: text
-  value: "Hello World!"
-  font: "/media/custom.ttf"
-  x: 0
-  y: 0
-  size: 40
-  color: red
-```
-
-| Parameter      | Description                          | Required | Default                        | Notes                                                                                     |
-|----------------|--------------------------------------|----------|--------------------------------|-------------------------------------------------------------------------------------------|
-| `value`        | Text to display                      | Yes      | -                              | String                                                                                    |
-| `x`            | X position                           | Yes      | -                              | Pixels or percentage                                                                      |
-| `y`            | Y position                           | No       | Last text position + y_padding | Pixels or percentage                                                                      |
-| `size`         | Font size                            | No       | `20`                           | Pixels                                                                                    |
-| `font`         | Font file name                       | No       | `ppb.ttf`                      | Available fonts: `ppb.ttf`, `rbm.ttf`, or custom                                          |
-| `color`        | Text color                           | No       | `black`                        | `black`, `white`, `red`,`yellow`                                                          |
-| `anchor`       | Text anchor point                    | No       | `lt` (left-top)                | [Pillow text anchors](https://pillow.readthedocs.io/en/stable/handbook/text-anchors.html) |
-| `max_width`    | Maximum text width before wrapping   | No       | -                              | Pixels or percentage                                                                      |
-| `spacing`      | Line spacing for wrapped text        | No       | `5`                            | Pixels                                                                                    |
-| `stroke_width` | Outline width                        | No       | `0`                            | Pixels                                                                                    |
-| `stroke_fill`  | Outline color                        | No       | `white`                        | `white`, `black`, `accent`, `red`, `yellow`                                               |
-| `y_padding`    | Vertical offset when y not specified | No       | `10`                           | Pixels                                                                                    |
-| `visible`      | Show/hide element                    | No       | `true`                         | `true`, `false`                                                                           |
-| `parse_colors` | Enable color markup in text          | No       | false                          | Enables `[color]text[/color]` syntax                                                      |
-| `truncate`     | Truncate text if exceeds max_width   | No       | false                          | Adds ellipsis (...) when truncating                                                       |
-### Inline Color Markup
-
-Text elements support inline color markup when `parse_colors` is enabled. This allows different parts of the text to be rendered in different colors without needing to create multiple text elements.
-
-| Parameter      | Description                 | Required | Default | Notes                                           |
-|----------------|-----------------------------|----------|---------|-------------------------------------------------|
-| `parse_colors` | Enable color markup parsing | No       | `false` | Set to `true` to enable color markup processing |
-
-Color markup syntax:
-```
-[color]text[/color]
-```
-
-Available colors:
-- `black` - Black text
-- `white` - White text
-- `red` - Red text (for red displays)
-- `yellow` - Yellow text (for yellow displays)
-- `accent` - Uses the display's accent color (red or yellow depending on hardware)
-
-Examples:
-```yaml
-# Simple colored text
-- type: text
-  value: "Temperature: [red]25°C[/red]"
-  x: 10
-  y: 10
-  parse_colors: true
-
-# Multiple colors
-- type: text
-  value: "[black]Current[/black] temp: [accent]25°C[/accent]"
-  x: 10
-  y: 40
-  parse_colors: true
-
-# With Home Assistant templates
-- type: text
-  value: "Status: [{{ 'accent' if is_state('binary_sensor.door', 'on') else 'black' }}]{{ states('binary_sensor.door') }}[/{{ 'accent' if is_state('binary_sensor.door', 'on') else 'black' }}]"
-  x: 10
-  y: 70
-  parse_colors: true
-```
-
-Notes:
-- Color markup only works when `parse_colors: true` is set
-- Without `parse_colors: true`, markup characters are treated as literal text
-- Works with Home Assistant templates
-- The `accent` color automatically adapts to the display type (red or yellow)
-
-#### Multiline Text with parse_colors
-
-When `parse_colors` is enabled, text elements support newline characters (`\n`) for creating multi-line colored text:
-
-```yaml
-- type: text
-  value: "Line 1\n[red]Red Line 2[/red]\n[yellow]Yellow Line 3[/yellow]"
-  x: "50%"
-  y: "50%"
-  font: "ppb.ttf"
-  size: 24
-  parse_colors: true
-  anchor: "mm"
-```
-Anchor Behavior with Multiline Colored Text:
-  - Anchors apply to the entire text block (all lines together)
-  - For example, anchor: "mm" centers the entire block at the specified coordinates
-  - Line spacing is controlled by the spacing parameter
-  - Each line respects the align parameter (left, center, right)
-
-### Multiline Text
-Splits text into multiple lines based on a delimiter.
-
-```yaml
-- type: multiline
-  value: "Line 1|Line 2|Line 3"
-  delimiter: "|"
-  font: "ppb.ttf"
-  x: 0
-  offset_y: 50
-  size: 40
-  color: black
-```
-
-| Parameter   | Description                    | Required | Default                   | Notes                                       |
-|-------------|--------------------------------|----------|---------------------------|---------------------------------------------|
-| `value`     | Text with delimiters           | Yes      | -                         | String                                      |
-| `delimiter` | Character to split text        | Yes      | -                         | Single character                            |
-| `x`         | X position                     | Yes      | -                         | Pixels or percentage                        |
-| `offset_y`  | Vertical spacing between lines | Yes      | -                         | Pixels                                      |
-| `y`         | Starting Y position            | No       | Last position + y_padding | Pixels or percentage                        |
-| `size`      | Font size                      | No       | `20`                      | Pixels                                      |
-| `font`      | Font file name                 | No       | `ppb.ttf`                 | Available fonts: `ppb.ttf`, `rbm.ttf`       |
-| `color`     | Text color                     | No       | `black`                   | `white`, `black`, `accent`, `red`, `yellow` |
-| `spacing`   | Additional line spacing        | No       | `0`                       | Pixels                                      |
-| `visible`   | Show/hide element              | No       | `true`                    | `true`, `false`                             |
-
-### Inline Color Markup
-
-Multiline elements support inline color markup when `parse_colors` is enabled. This allows different parts of the text to be rendered in different colors without needing to create multiple text elements.
-
-**Important Limitation:** Color tags must be complete within each delimiter-separated segment. Color tags **cannot span across delimiters**.
-
-### Line
-Draws a straight line.
-
-```yaml
-- type: line
-  x_start: 20
-  x_end: 380
-  y_start: 15
-  y_end: 15
-  width: 1
-  fill: red
-```
-
-| Parameter      | Description                          | Required | Default         | Notes                                       |
-|----------------|--------------------------------------|----------|-----------------|---------------------------------------------|
-| `x_start`      | Starting X position                  | Yes      | -               | Pixels or percentage                        |
-| `x_end`        | Ending X position                    | Yes      | -               | Pixels or percentage                        |
-| `y_start`      | Starting Y position                  | No       | Auto-positioned | Pixels or percentage                        |
-| `y_end`        | Ending Y position                    | No       | `y_start`       | Pixels or percentage                        |
-| `fill`         | Line color                           | No       | `black`         | `white`, `black`, `accent`, `red`, `yellow` |
-| `width`        | Line thickness                       | No       | `1`             | Pixels                                      |
-| `y_padding`    | Vertical offset when auto-positioned | No       | `0`             | Pixels                                      |
-| `dashed`       | Enable dashed line behaviour         | No       | `False`         | `False`, `True`                             |
-| `dash_length`  | Length of dashes                     | No       | 5               | Pixels                                      |
-| `space_length` | Length of spaces between dashes      | No       | 3               | Pixels                                      |
-| `visible`      | Show/hide element                    | No       | `True`          | `True`, `False`                             |
-
-### Rectangle
-Draws a rectangle with optional rounded corners.
-
-```yaml
-- type: rectangle
-  x_start: 20
-  x_end: 80
-  y_start: 15
-  y_end: 30
-  width: 2
-  fill: red
-  outline: black
-```
-
-| Parameter | Description            | Required | Default | Notes                                                                                    |
-|-----------|------------------------|----------|---------|------------------------------------------------------------------------------------------|
-| `x_start` | Left position          | Yes      | -       | Pixels or percentage                                                                     |
-| `x_end`   | Right position         | Yes      | -       | Pixels or percentage                                                                     |
-| `y_start` | Top position           | Yes      | -       | Pixels or percentage                                                                     |
-| `y_end`   | Bottom position        | Yes      | -       | Pixels or percentage                                                                     |
-| `fill`    | Fill color             | No       | `null`  | `white`, `black`, `accent`, `red`, `yellow`  `null`                                      |
-| `outline` | Border color           | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`                                              |
-| `width`   | Border thickness       | No       | `1`     | Pixels                                                                                   |
-| `radius`  | Corner radius          | No       | `0`     | Pixels                                                                                   |
-| `corners` | Which corners to round | No       | `all`   | `all` or comma-separated list of: `top_left`, `top_right`, `bottom_left`, `bottom_right` |
-| `visible` | Show/hide element      | No       | `true`  | `true`, `false`                                                                          |
-
-### Rectangle Pattern
-Draws repeated rectangles in a grid pattern.
-
-```yaml
-  - type: rectangle_pattern
-    x_start: 5
-    x_size: 35
-    x_offset: 10
-    y_start: 28
-    y_size: 18
-    y_offset: 2
-    fill: white
-    outline: red
-    width: 1
-    x_repeat: 1
-    y_repeat: 4
-```
-
-| Parameter  | Description                  | Required | Default | Notes                                                |
-|------------|------------------------------|----------|---------|------------------------------------------------------|
-| `x_start`  | Starting X position          | Yes      | -       | Pixels or percentage                                 |
-| `x_size`   | Width of each rectangle      | Yes      | -       | Pixels                                               |
-| `x_offset` | Horizontal spacing           | Yes      | -       | Pixels                                               |
-| `y_start`  | Starting Y position          | Yes      | -       | Pixels or percentage                                 |
-| `y_size`   | Height of each rectangle     | Yes      | -       | Pixels                                               |
-| `y_offset` | Vertical spacing             | Yes      | -       | Pixels                                               |
-| `x_repeat` | Number of horizontal repeats | Yes      | -       | Integer                                              |
-| `y_repeat` | Number of vertical repeats   | Yes      | -       | Integer                                              |
-| `fill`     | Fill color                   | No       | `null`  | `white`, `black`, `accent`, `red`, `yellow`,  `null` |
-| `outline`  | Border color                 | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`          |
-| `width`    | Border thickness             | No       | `1`     | Pixels                                               |
-| `visible`  | Show/hide element            | No       | `true`  | `true`, `false`                                      |
-
-### Polygon
-
-Draws a filled or outlined polygon based on the provided points.
-
-```yaml
-- type: polygon
-  points: [[10, 10], [50, 10], [50, 50], [10, 50]]
-  fill: "red"
-  outline: "black"
-```
-
-| Parameter | Description                              | Required | Default | Notes                    |
-|-----------|------------------------------------------|----------|---------|--------------------------|
-| `points`  | List of coordinate pairs for the polygon | Yes      | -       | Example: [[x1, y1], ...] |
-| `fill`    | Fill color for the polygon               | No       | `none`  | Any supported color      |
-| `outline` | Outline color for the polygon            | No       | `black` | Any supported color      |
-| `width`   | Width of the outline                     | No       | `1`     | Pixels                   |
+For the **complete field reference of every element type and the shared fields**, see
+the **[odl-renderer README](https://github.com/OpenDisplay/odl-renderer/blob/odl-renderer-v0.5.10/README.md)**.
+This integration pins the odl-renderer version in `manifest.json`; the link above points
+at the matching tag.
+<!-- Keep this version in sync with the odl-renderer pin in manifest.json. -->
 
 
-### Circle
-Draws a circle around a center point.
+| Type | Purpose |
+|------|---------|
+| `text` | Single-line text with wrapping, truncation, stroke, inline color markup |
+| `multiline` | Fixed-line text split by a delimiter |
+| `line` | Straight line |
+| `rectangle` | Rectangle (filled / outlined) |
+| `rectangle_pattern` | Repeated grid of rectangles |
+| `polygon` | Arbitrary polygon |
+| `circle` | Circle |
+| `ellipse` | Ellipse |
+| `arc` | Arc / pie slice |
+| `icon` | Material Design Icon |
+| `icon_sequence` | Row of icons |
+| `dlimg` | Downloaded / embedded image |
+| `qrcode` | QR code |
+| `plot` | Line plot of Home Assistant history (see [Plot](#plot-entity-backed)) |
+| `progress_bar` | Progress bar with optional percentage text |
+| `debug_grid` | Coordinate grid overlay for layout debugging |
 
-```yaml
-- type: circle
-  x: 50
-  y: 50
-  radius: 20
-```
+Shared fields available on **every** element include `visible` (a templated `"false"`
+or empty string hides it), `rotation` (degrees, positive = clockwise) and `mirror`
+(`h` / `v` / `hv`) with an optional `pivot`, plus
+[anchors](https://github.com/OpenDisplay/odl-renderer/blob/odl-renderer-v0.5.10/README.md#anchors),
+colors and percentage coordinates — all documented in the odl-renderer README.
 
-| Parameter | Description       | Required | Default | Notes                                                |
-|-----------|-------------------|----------|---------|------------------------------------------------------|
-| `x`       | Center X position | Yes      | -       | Pixels or percentage                                 |
-| `y`       | Center Y position | Yes      | -       | Pixels or percentage                                 |
-| `radius`  | Circle radius     | Yes      | -       | Pixels                                               |
-| `fill`    | Fill color        | No       | `null`  | `white`, `black`, `accent`, `red`, `yellow` , `null` |
-| `outline` | Border color      | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`          |
-| `width`   | Border thickness  | No       | `1`     | Pixels                                               |
-| `visible` | Show/hide element | No       | `true`  | `true`, `false`                                      |
+> **Plots are different here.** odl-renderer's `plot` takes raw data points; this
+> integration instead lets you reference Home Assistant entities and a time range and
+> fetches the history for you. Those entity-backed options are documented below.
 
-### Ellipse
-Draws an ellipse inside the bounding box.
-
-```yaml
-- type: ellipse
-  x_start: 50
-  x_end: 100
-  y_start: 50
-  y_end: 100
-```
-
-| Parameter | Description       | Required | Default | Notes                                               |
-|-----------|-------------------|----------|---------|-----------------------------------------------------|
-| `x_start` | Left position     | Yes      | -       | Pixels or percentage                                |
-| `x_end`   | Right position    | Yes      | -       | Pixels or percentage                                |
-| `y_start` | Top position      | Yes      | -       | Pixels or percentage                                |
-| `y_end`   | Bottom position   | Yes      | -       | Pixels or percentage                                |
-| `fill`    | Fill color        | No       | `null`  | `white`, `black`, `accent`, `red`, `yellow`  `null` |
-| `outline` | Border color      | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`         |
-| `width`   | Border thickness  | No       | `1`     | Pixels                                              |
-| `visible` | Show/hide element | No       | `true`  | `true`, `false`                                     |
-
-### Arc/ Pie Slice
-Draws an arc (outline-only) or a pie slice (filled) based on the specified center, radius, and angles.
-```yaml
-- type: arc
-  x: 100
-  y: 75
-  radius: 50
-  start_angle: 0
-  end_angle: 90
-  fill: red
-- type: arc
-  x: 100
-  y: 75
-  radius: 50
-  start_angle: 90
-  end_angle: 0
-```
-| Parameter     | Description                          | Required | Default | Notes                       |
-|---------------|--------------------------------------|----------|---------|-----------------------------|
-| `x`           | X coordinate of the center           | Yes      | -       | Pixels or percentage        |
-| `y`           | Y coordinate of the center           | Yes      | -       | Pixels or percentage        |
-| `radius`      | Radius of the arc or pie slice       | Yes      | -       | Pixels                      |
-| `start_angle` | Starting angle of the arc            | Yes      | -       | 0 degrees = right           |
-| `end_angle`   | Ending angle af the arc              | Yes      | -       | Clockwise direction         |
-| `fill`        | Foll color for the pie slices        | No       | `none`  | Use to make a pie slice     |
-| `outline`     | Outline color for arcs or pie slices | No       | `black` |                             |
-| `width`       | Width of the outline                 | No       | `1`     | Ignored if fill is provided |
-
-
-### Icon
-Draws Material Design Icons.
-
-```yaml
-- type: icon
-  value: "account-cowboy-hat"
-  x: 60
-  y: 120
-  size: 120
-  color: red
-```
-
-| Parameter | Description       | Required | Default | Notes                                                                |
-|-----------|-------------------|----------|---------|----------------------------------------------------------------------|
-| `value`   | Icon name         | Yes      | -       | From [Material Design Icons](https://pictogrammers.com/library/mdi/) |
-| `x`       | X position        | Yes      | -       | Pixels or percentage                                                 |
-| `y`       | Y position        | Yes      | -       | Pixels or percentage                                                 |
-| `size`    | Icon size         | Yes      | -       | Pixels                                                               |
-| `fill`    | Icon color        | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`                          |
-| `anchor`  | Icon anchor point | No       | `la`    | See text anchors                                                     |
-| `visible` | Show/hide element | No       | `true`  | `true`, `false`                                                      |
-
-Note: Icon name can be prefixed with `mdi:` (e.g., `mdi:account-cowboy-hat`)
-
-### Icon Sequence
-Draws multiple Material Design Icons in a sequence with specified direction and spacing.
-
-```yaml
-- type: icon_sequence
-  x: 10
-  y: 10
-  icons:
-    - mdi:home
-    - mdi:arrow-right
-    - mdi:office-building
-  size: 24
-  direction: right
-```
-
-| Parameter      | Description           | Required | Default | Notes                                                                |
-|----------------|-----------------------|----------|---------|----------------------------------------------------------------------|
-| `x`            | X position            | Yes      | -       | Pixels or percentage                                                 |
-| `y`            | Y position            | Yes      | -       | Pixels or percentage                                                 |
-| `icons`        | List of icon names    | Yes      | -       | From [Material Design Icons](https://pictogrammers.com/library/mdi/) |
-| `size`         | Size of each icon     | Yes      | -       | Pixels                                                               |
-| `direction`    | Direction of sequence | No       | `right` | `right`, `left`, `up`, `down`                                        |
-| `spacing`      | Space between icons   | No       | size/4  | Pixels                                                               |
-| `fill`         | Icon color            | No       | `black` | `white`, `black`, `accent`, `red`, `yellow`                          |
-| `anchor`       | Icon anchor point     | No       | `la`    | See text anchors                                                     |
-| `visible`      | Show/hide element     | No       | `true`  | `true`, `false`                                                      |
-
-
-### Download Image
-Downloads and displays an image from a URL.
-
-```yaml
-- type: dlimg
-  url: "https://upload.wikimedia.org/wikipedia/en/9/9a/Trollface_non-free.png"
-  x: 10
-  y: 10
-  xsize: 120
-  ysize: 120
-  rotate: 0
-```
-
-| Parameter       | Description       | Required | Default   | Notes                                                       |
-|-----------------|-------------------|----------|-----------|-------------------------------------------------------------|
-| `url`           | Image URL or path | Yes      | -         | HTTP/HTTPS URL, Data URI, local path or camera/image entity |
-| `x`             | X position        | Yes      | -         | Pixels                                                      |
-| `y`             | Y position        | Yes      | -         | Pixels                                                      |
-| `xsize`         | Target width      | Yes      | -         | Pixels                                                      |
-| `ysize`         | Target height     | Yes      | -         | Pixels                                                      |
-| `resize_method` | Resizing method   | No       | `stretch` | `stretch`, `crop`, `cover`, `contain`                       |
-| `rotate`        | Rotation angle    | No       | `0`       | Degrees                                                     |
-| `visible`       | Show/hide element | No       | `true`    | `true`, `false`                                             |
-
-Notes:
-- Local images must be in `/config/media/`
-- Data URIs supported (e.g., `data:image/gif;base64,...`)
-- External images must be publicly accessible
-- Camera entities (e.g. `camera.p1s_camera`) must have a `entity_picture` attribute
-
-### QR Code
-Generates and displays a QR code.
-
-```yaml
-- type: qrcode
-  data: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-  x: 140
-  y: 50
-  boxsize: 2
-  border: 2
-  color: "black"
-  bgcolor: "white"
-```
-
-| Parameter | Description          | Required | Default | Notes                                       |
-|-----------|----------------------|----------|---------|---------------------------------------------|
-| `data`    | Content to encode    | Yes      | -       | String                                      |
-| `x`       | X position           | Yes      | -       | Pixels or percentage                        |
-| `y`       | Y position           | Yes      | -       | Pixels or percentage                        |
-| `boxsize` | Size of each QR box  | No       | `2`     | Pixels                                      |
-| `border`  | QR code border width | No       | `1`     | Units                                       |
-| `color`   | QR code color        | No       | `black` | `white`, `black`, `accent`, `red`, `yellow` |
-| `bgcolor` | Background color     | No       | `white` | `white`, `black`, `accent`, `red`, `yellow` |
-| `visible` | Show/hide element    | No       | `true`  | `true`, `false`                             |
-
-### Plot
-Renders historical data from Home Assistant entities as a line plot.
+## Plot (entity-backed)
+Renders historical data from Home Assistant entities as a line plot. This is the one
+element whose configuration is integration-specific: you reference entities and a time
+range, and the integration fetches the history and feeds raw points to odl-renderer.
 
 ```yaml
 - type: plot
@@ -854,40 +460,6 @@ xaxis:
       point_color: black
       value_scale: 1.0
 ```
-
-### Progress Bar
-Displays a progress bar with optional percentage text.
-
-```yaml
-- type: progress_bar
-  x_start: 10
-  y_start: 10
-  x_end: 280
-  y_end: 30
-  fill: red
-  outline: black
-  width: 1
-  progress: 42
-  direction: right
-  show_percentage: true
-  font: "ppb.ttf"
-```
-
-| Parameter         | Description               | Required | Default   | Notes                                       |
-|-------------------|---------------------------|----------|-----------|---------------------------------------------|
-| `x_start`         | Left position             | Yes      | -         | Pixels or percentage                        |
-| `y_start`         | Top position              | Yes      | -         | Pixels or percentage                        |
-| `x_end`           | Right position            | Yes      | -         | Pixels or percentage                        |
-| `y_end`           | Bottom position           | Yes      | -         | Pixels or percentage                        |
-| `progress`        | Progress value            | Yes      | -         | 0-100 (clamped)                             |
-| `direction`       | Fill direction            | No       | `right`   | `right`, `left`, `up`, `down`               |
-| `background`      | Background color          | No       | `white`   | `white`, `black`, `accent`, `red`, `yellow` |
-| `fill`            | Progress bar color        | No       | `red`     | `white`, `black`, `accent`, `red`, `yellow` |
-| `outline`         | Border color              | No       | `black`   | `white`, `black`, `accent`, `red`, `yellow` |
-| `width`           | Border thickness          | No       | `1`       | Pixels                                      |
-| `show_percentage` | Show percentage text      | No       | `false`   | `true`, `false`                             |
-| `font`            | Percentage text font      | No       | `ppb.ttf` | Font name                                   |
-| `visible`         | Show/hide element         | No       | `true`    | `true`, `false`                             |
 
 ## Template Examples
 
