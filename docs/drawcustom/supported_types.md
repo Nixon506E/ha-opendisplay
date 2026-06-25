@@ -66,7 +66,7 @@ The service targets one or more OpenDisplay devices via the standard Home Assist
 OpenDisplay devices predominantly come in two variants: red and yellow accent colors (devices with more also exist). You can specify colors in several ways:
 
 - Using explicit colors: `"black"`, `"white"`, `"red"`, `"yellow"`
-- Using halftone colors (set `dither=2`): `"half_black"` (or `"gray"`, `"grey"`, `"half_white"`), `"half_red"`, `"half_yellow"`
+- Using halftone colors (requires a dithering mode, e.g. the default `dither: ordered`): `"half_black"` (or `"gray"`, `"grey"`, `"half_white"`), `"half_red"`, `"half_yellow"`
 - Using single letter shortcuts: `"b"` (black), `"w"` (white), `"r"` (red), `"y"` (yellow)
 - Using halftone shortcuts: `"hb"`, `"hw"` (50% black/gray), `"hr"` (50% red), `"hy"` (50% yellow)
 - Using `"accent"`, `"a"`, `"half_accent"`, or `"ha"` to automatically use the display's accent color (red or yellow depending on the hardware)
@@ -127,24 +127,29 @@ Custom fonts are supported for text elements. The integration provides several w
 
 ### Font locations
 
-The integration searches for fonts in these locations in order:
+A font referenced by filename (e.g. `font: "CustomFont.ttf"`) is searched for in these
+directories, in order:
 
-1. **Custom font directories** (configured in the integration options)
-2. **Integration assets directory** (`custom_components/opendisplay/imagegen/assets`) - contains default fonts (`ppb.ttf`, `rbm.ttf`)
-3. **Web directory** - (`/config/www/fonts/`)
-4. **Media directory** - (`/media/fonts/`)
+1. `/config/www/fonts/`
+2. `/config/media/fonts/`
+3. `/media/fonts/`
 
-> **Note:** The `/config/www/fonts/` and `/media/fonts/` directories do not exist by default. You'll need to create them if you want to use them.
+The built-in fonts `ppb.ttf` and `rbm.ttf` are bundled with odl-renderer and always
+available, and absolute paths (e.g. `font: "/media/GothamBold-Rnd.ttf"`) are used
+directly — neither needs any of the directories above.
+
+> **Note:** none of these directories exist by default. Create the one you want to use.
 
 #### Setting Up Font Directories
 
 To create the standard font directories:
 
 ```bash
-# Create the www/fonts directory
+# Under your Home Assistant config directory
 mkdir -p /config/www/fonts
+mkdir -p /config/media/fonts
 
-# Create the media/fonts directory
+# Or the top-level media directory
 mkdir -p /media/fonts
 ```
 
@@ -155,36 +160,16 @@ You can access these directories:
 
 ### Default fonts
 
-The integration provides two default fonts:
+Two default fonts are bundled with odl-renderer and always available:
 - `ppb.ttf`
 - `rbm.ttf`
 
-These are always available and will be used as fallbacks if specified fonts cannot be found.
-
-### Configuring custom font directories
-
-You can add custom font directories in the integrations configuration:
-
-1. Go to **Settings** → **Devices & Services**
-2. Find the OpenDisplay integration and click **Configure**
-3. Enter custom font directories, separated by semicolons (must be absolute paths)
-   ```
-   /config/custom/fonts;/usr/share/fonts;/home/homeassistant/fonts
-   ```
-4. Click **Submit**
+They are used as the fallback when a specified font cannot be found.
 
 ### Font not found
 
-If a font can't be found, the integration:
-1. Logs a warning message
-2. Falls back to the default `ppb.ttf` font
-
-Check the Home Assistant logs for messages like:
-```
-Font 'myfont.ttf' not found in any of the standard locations.
-Place fonts in /config/www/fonts/ or /media/fonts/ or provide absolute path.
-Falling back to default font.
-```
+If a referenced font can't be found in any of the search directories, a warning is
+logged and rendering falls back to the default `ppb.ttf`.
 
 ## Element types
 
