@@ -21,8 +21,6 @@ With `drawcustom`, you can create an image in Home Assistant and send the render
 
 ## Basic Usage
 
-OpenDisplay devices come in multiple variants - red and yellow are the most common accent colors. The following options are available:
-
 The payload is a list of drawing elements that define what to display. Each element must specify its type and required properties. The elements are drawn in order from first to last.
 
 Example payload:
@@ -35,7 +33,7 @@ Example payload:
   size: 40
   color: red
 - type: icon
-  value: account-cowboy-hat
+  value: mdi:account-cowboy-hat
   x: 60
   y: 120
   size: 120
@@ -61,7 +59,7 @@ The service targets one or more OpenDisplay devices via the standard Home Assist
 > are still accepted for backward compatibility — unknown keys are ignored.
 
 
-# Color Support
+## Color Support
 
 OpenDisplay devices predominantly come in two variants: red and yellow accent colors (devices with more also exist). You can specify colors in several ways:
 
@@ -83,7 +81,7 @@ Example payload adapting to display color:
   color: accent  # Will be red or yellow depending on the display
 ```
 
-## Color Support by Element Type
+### Color Support by Element Type
 
 All elements that support colors (text, shapes, icons, etc.) accept the following color properties:
 
@@ -96,7 +94,7 @@ All elements that support colors (text, shapes, icons, etc.) accept the followin
 
 Using `"accent"` is recommended for portable scripts that should work with both red and yellow devices.
 
-# Font support
+## Font support
 
 Custom fonts are supported for text elements. The integration provides several ways to specify fonts:
 
