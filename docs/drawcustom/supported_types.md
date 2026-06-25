@@ -1,6 +1,6 @@
 # drawcustom
 
-With `drawcustom`, you can create an image in Home Assistant and send the rendered image to an OEPL AP.
+With `drawcustom`, you can create an image in Home Assistant and send the rendered image to an OpenDisplay device.
 
 > **Element reference lives in [odl-renderer](https://github.com/OpenDisplay/odl-renderer).**
 > drawcustom renders the payload with the odl-renderer library, which owns every element
@@ -21,7 +21,7 @@ With `drawcustom`, you can create an image in Home Assistant and send the render
 
 ## Basic Usage
 
-ESLs come in multiple variants - red and yellow are the most common accent colors. The following options are available:
+OpenDisplay devices come in multiple variants - red and yellow are the most common accent colors. The following options are available:
 
 The payload is a list of drawing elements that define what to display. Each element must specify its type and required properties. The elements are drawn in order from first to last.
 
@@ -62,16 +62,16 @@ Example payload:
 
 # Color Support
 
-ESLs predominantly come in two variants: red and yellow accent colors (tags with more also exist). You can specify colors in several ways:
+OpenDisplay devices predominantly come in two variants: red and yellow accent colors (devices with more also exist). You can specify colors in several ways:
 
 - Using explicit colors: `"black"`, `"white"`, `"red"`, `"yellow"`
 - Using halftone colors (set `dither=2`): `"half_black"` (or `"gray"`, `"grey"`, `"half_white"`), `"half_red"`, `"half_yellow"`
 - Using single letter shortcuts: `"b"` (black), `"w"` (white), `"r"` (red), `"y"` (yellow)
 - Using halftone shortcuts: `"hb"`, `"hw"` (50% black/gray), `"hr"` (50% red), `"hy"` (50% yellow)
-- Using `"accent"`, `"a"`, `"half_accent"`, or `"ha"` to automatically use the tag's accent color (red or yellow depending on the hardware)
+- Using `"accent"`, `"a"`, `"half_accent"`, or `"ha"` to automatically use the display's accent color (red or yellow depending on the hardware)
 - Using hex colors: `"#RGB"` or `"#RRGGBB"` (e.g., `"#F00"` or `"#FF0000"` for red)
 
-Example payload adapting to tag color:
+Example payload adapting to display color:
 ```yaml
 - type: text
   value: Hello World!
@@ -79,7 +79,7 @@ Example payload adapting to tag color:
   x: 0
   y: 0
   size: 40
-  color: accent  # Will be red or yellow depending on the tag
+  color: accent  # Will be red or yellow depending on the display
 ```
 
 ## Color Support by Element Type
@@ -93,7 +93,7 @@ All elements that support colors (text, shapes, icons, etc.) accept the followin
 | `outline`    | Outline/border color               | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
 | `background` | Background color (when applicable) | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
 
-Using `"accent"` is recommended for portable scripts that should work with both red and yellow tags.
+Using `"accent"` is recommended for portable scripts that should work with both red and yellow devices.
 
 # Font support
 
