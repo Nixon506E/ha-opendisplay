@@ -44,20 +44,21 @@ Example payload:
 
 ### Service Options
 
-| Option       | Description                     | Default |
-|--------------|---------------------------------|---------|
-| `payload`    | List of drawing elements (YAML) | -       |
-| `background` | Background color                | white   |
-| `rotate`     | Rotation of image               | 0       |
-| `dither`     | Dithering (see table below)     | 2       |
-| `ttl`        | Cache time in seconds           | 60      |
-| `dry-run`    | Generate without sending        | false   |
+The service targets one or more OpenDisplay devices via the standard Home Assistant
+**target** selector (devices, areas, or labels). The following data fields are available:
 
-| Dither | Description                                           |
-|--------|-------------------------------------------------------|
-| `0`    | No dithering                                          |
-| `1`    | Floyd-Steinberg dithering (best for photos)           |
-| `2`    | Ordered dithering (default, best for halftone colors) |
+| Option             | Description                              | Default   | Values                                                                                                    |
+|--------------------|------------------------------------------|-----------|-----------------------------------------------------------------------------------------------------------|
+| `payload`          | List of drawing elements (required)      | —         | See [Element types](#element-types)                                                                       |
+| `background`       | Background color                         | `white`   | `white`, `black`, `accent`, `red`, `yellow`                                                               |
+| `rotate`           | Rotation of the whole image, in degrees  | `0`       | `0`, `90`, `180`, `270`                                                                                   |
+| `dither`           | Dithering algorithm                      | `ordered` | `none`, `burkes`, `ordered`, `floyd_steinberg`, `atkinson`, `stucki`, `sierra`, `sierra_lite`, `jarvis_judice_ninke` |
+| `refresh_type`     | E-paper refresh mode                     | `full`    | `full`, `fast`                                                                                            |
+| `tone_compression` | Tone compression strength (%)            | automatic | `0`–`100`; omit for automatic tone mapping                                                                |
+| `dry-run`          | Generate the image without sending it    | `false`   | `true`, `false`                                                                                           |
+
+> Legacy numeric `dither` values (`0`/`1`/`2`, …) and other pre-3.0 keys (e.g. `ttl`)
+> are still accepted for backward compatibility — unknown keys are ignored.
 
 
 # Color Support
