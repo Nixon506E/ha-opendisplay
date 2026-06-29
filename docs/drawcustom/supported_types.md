@@ -64,11 +64,18 @@ The service targets one or more OpenDisplay devices via the standard Home Assist
 OpenDisplay devices predominantly come in two variants: red and yellow accent colors (devices with more also exist). You can specify colors in several ways:
 
 - Using explicit colors: `"black"`, `"white"`, `"red"`, `"yellow"`
-- Using halftone colors (requires a dithering mode, e.g. the default `dither: ordered`): `"half_black"` (or `"gray"`, `"grey"`, `"half_white"`), `"half_red"`, `"half_yellow"`
+- Using gray levels (for multi-gray displays): `"dkgray"` (dark), `"gray"`/`"grey"` (mid), `"ltgray"` (light) — long forms `"darkgray"`/`"dark_gray"` and `"lightgray"`/`"light_gray"` also work
+- Using halftone colors (requires a dithering mode, e.g. the default `dither: ordered`): `"half_black"` (mid gray, same as `"gray"`), `"half_white"` (light gray, same as `"ltgray"`), `"half_red"`, `"half_yellow"`
 - Using single letter shortcuts: `"b"` (black), `"w"` (white), `"r"` (red), `"y"` (yellow)
-- Using halftone shortcuts: `"hb"`, `"hw"` (50% black/gray), `"hr"` (50% red), `"hy"` (50% yellow)
+- Using halftone shortcuts: `"hb"` (mid gray), `"hw"` (light gray), `"hr"` (50% red), `"hy"` (50% yellow)
 - Using `"accent"`, `"a"`, `"half_accent"`, or `"ha"` to automatically use the display's accent color (red or yellow depending on the hardware)
-- Using hex colors: `"#RGB"` or `"#RRGGBB"` (e.g., `"#F00"` or `"#FF0000"` for red)
+- Using hex colors: `"#RGB"`, `"#RGBA"`, `"#RRGGBB"`, or `"#RRGGBBAA"` (e.g., `"#F00"` or `"#FF0000"` for red). The 4-/8-digit forms are accepted for convenience, but the alpha component is **not** blended during rendering and has no visible effect — colors render fully opaque. For multi-gray displays, equal-channel hex such as `"#808080"` selects a gray level.
+
+> [!IMPORTANT]
+> Always quote hex colors in YAML: write `fill: "#FF0000"`, not `fill: #FF0000`.
+> In YAML an unquoted `#` starts a comment, so `fill: #FF0000` parses as an empty
+> value (`null`) and the color is silently dropped. Named colors like `red` do not
+> need quotes.
 
 Example payload adapting to display color:
 ```yaml
@@ -85,12 +92,12 @@ Example payload adapting to display color:
 
 All elements that support colors (text, shapes, icons, etc.) accept the following color properties:
 
-| Property     | Description                        | Values                                                      |
-|--------------|------------------------------------|-------------------------------------------------------------|
-| `color`      | Primary color                      | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
-| `fill`       | Fill color                         | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
-| `outline`    | Outline/border color               | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
-| `background` | Background color (when applicable) | `white`, `black`, `accent`, `red`, `yellow`, `#RRGGBB`      |
+| Property     | Description                        | Values                                                                       |
+|--------------|------------------------------------|------------------------------------------------------------------------------|
+| `color`      | Primary color                      | `white`, `black`, `dkgray`, `gray`, `ltgray`, `accent`, `red`, `yellow`, `#RRGGBB` |
+| `fill`       | Fill color                         | `white`, `black`, `dkgray`, `gray`, `ltgray`, `accent`, `red`, `yellow`, `#RRGGBB` |
+| `outline`    | Outline/border color               | `white`, `black`, `dkgray`, `gray`, `ltgray`, `accent`, `red`, `yellow`, `#RRGGBB` |
+| `background` | Background color (when applicable) | `white`, `black`, `dkgray`, `gray`, `ltgray`, `accent`, `red`, `yellow`, `#RRGGBB` |
 
 Using `"accent"` is recommended for portable scripts that should work with both red and yellow devices.
 
