@@ -58,6 +58,7 @@ ATTR_DITHER_MODE = "dither_mode"
 ATTR_REFRESH_MODE = "refresh_mode"
 ATTR_FIT_MODE = "fit_mode"
 ATTR_TONE_COMPRESSION = "tone_compression"
+ATTR_USE_MEASURED_PALETTES = "use_measured_palettes"
 
 
 def _str_to_int_enum(enum_class: type[IntEnum]) -> Callable[[str], Any]:
@@ -122,6 +123,7 @@ SCHEMA_UPLOAD_IMAGE = vol.Schema(
         vol.Optional(ATTR_TONE_COMPRESSION): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=100.0)
         ),
+        vol.Optional(ATTR_USE_MEASURED_PALETTES, default=True): cv.boolean,
     }
 )
 
@@ -134,11 +136,12 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
         vol.Required("payload"): list,
         vol.Optional("background", default="white"): cv.string,
         vol.Optional("rotate", default=0): vol.All(vol.Coerce(int), vol.In([0, 90, 180, 270])),
-        vol.Optional("dither", default="ordered"): _dither_value,
+        vol.Optional("dither", default="burkes"): _dither_value,
         vol.Optional("refresh_type", default="full"): _refresh_type_value,
         vol.Optional(ATTR_TONE_COMPRESSION): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=100.0)
         ),
+        vol.Optional(ATTR_USE_MEASURED_PALETTES, default=False): cv.boolean,
         vol.Optional("dry-run", default=False): cv.boolean,
     },
     extra=vol.REMOVE_EXTRA,  # silently drop legacy keys (ttl, preload_type, preload_lut, ...)
@@ -278,6 +281,7 @@ async def _async_connect_and_run(
     hass: HomeAssistant,
     entry: "OpenDisplayConfigEntry",
     action: Callable[[OpenDisplayDevice], Awaitable[None]],
+    use_measured_palettes: bool = True,
 ) -> None:
     """Resolve BLE device, open a connection, run action, handle auth errors."""
     address = entry.unique_id
@@ -316,6 +320,7 @@ async def _async_connect_and_run(
             mac_address=address,
             ble_device=ble_device,
             config=entry.runtime_data.device_config,
+            use_measured_palettes=use_measured_palettes,
             encryption_key=encryption_key,
         ) as device:
             await action(device)
@@ -342,6 +347,7 @@ async def _async_send_image(
     fit: FitMode = FitMode.CONTAIN,
     tone: float | str = "auto",
     rotate: Rotation = Rotation.ROTATE_0,
+    use_measured_palettes: bool = True,
 ) -> None:
     """Upload a PIL image to the device."""
     async def _upload(device: OpenDisplayDevice) -> None:
@@ -353,7 +359,9 @@ async def _async_send_image(
             fit=fit,
             rotate=rotate,
         )
-    await _async_connect_and_run(hass, entry, _upload)
+    await _async_connect_and_run(
+        hass, entry, _upload, use_measured_palettes=use_measured_palettes
+    )
     jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
     async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
 
@@ -371,6 +379,7 @@ async def _async_upload_image(call: ServiceCall) -> None:
     tone_compression: float | str = (
         tone_compression_pct / 100.0 if tone_compression_pct is not None else "auto"
     )
+    use_measured_palettes: bool = call.data[ATTR_USE_MEASURED_PALETTES]
 
     # A plain URL (e.g. an automation pushing a rendered snapshot) must be
     # explicitly allowlisted; media-source items are already trusted.
@@ -414,6 +423,7 @@ async def _async_upload_image(call: ServiceCall) -> None:
             fit=fit_mode,
             tone=tone_compression,
             rotate=rotation,
+            use_measured_palettes=use_measured_palettes,
         )
     except asyncio.CancelledError:
         return
@@ -605,6 +615,7 @@ async def _drawcustom_for_device(
     tone_compression: float | str = (
         tone_compression_pct / 100.0 if tone_compression_pct is not None else "auto"
     )
+    use_measured_palettes: bool = call.data[ATTR_USE_MEASURED_PALETTES]
 
     await _async_send_image(
         hass,
@@ -614,6 +625,7 @@ async def _drawcustom_for_device(
         refresh_mode=refresh_mode,
         tone=tone_compression,
         rotate=Rotation(rotate),
+        use_measured_palettes=use_measured_palettes,
     )
 
 

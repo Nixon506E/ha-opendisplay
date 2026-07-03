@@ -190,6 +190,10 @@
                 "tone_compression": {
                     "description": "Dynamic range compression strength. Leave empty for automatic.",
                     "name": "Tone compression"
+                },
+                "use_measured_palettes": {
+                    "description": "Use measured, per-panel color palettes when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
+                    "name": "Use measured palettes"
                 }
             },
             "name": "Upload image",
@@ -317,6 +321,10 @@
                 "refresh_type": {
                     "description": "Display refresh mode.",
                     "name": "Refresh type"
+                },
+                "use_measured_palettes": {
+                    "description": "Use measured, per-panel color palettes when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
+                    "name": "Use measured palettes"
                 },
                 "dry-run": {
                     "description": "Generate image without uploading to the device.",

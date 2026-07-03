@@ -68,6 +68,11 @@ upload_image:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        use_measured_palettes:
+          required: false
+          default: true
+          selector:
+            boolean:
 
 activate_led:
   fields:
@@ -283,7 +288,7 @@ drawcustom:
       name: Dither mode
       description: Dithering algorithm
       required: true
-      default: "ordered"
+      default: "burkes"
       selector:
         select:
           translation_key: dither_mode
@@ -319,6 +324,13 @@ drawcustom:
           step: 1
           mode: slider
           unit_of_measurement: "%"
+    use_measured_palettes:
+      name: Use measured palettes
+      description: Use measured, per-panel color palettes when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.
+      required: false
+      default: false
+      selector:
+        boolean:
     dry-run:
       name: Dry run
       description: Generate image without sending to device
