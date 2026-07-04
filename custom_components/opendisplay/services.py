@@ -281,7 +281,7 @@ async def _async_connect_and_run(
     hass: HomeAssistant,
     entry: "OpenDisplayConfigEntry",
     action: Callable[[OpenDisplayDevice], Awaitable[None]],
-    use_measured_palettes: bool = True,
+    use_measured_palettes: bool = False,
 ) -> None:
     """Resolve BLE device, open a connection, run action, handle auth errors."""
     address = entry.unique_id
@@ -347,7 +347,7 @@ async def _async_send_image(
     fit: FitMode = FitMode.CONTAIN,
     tone: float | str = "auto",
     rotate: Rotation = Rotation.ROTATE_0,
-    use_measured_palettes: bool = True,
+    use_measured_palettes: bool = False,
 ) -> None:
     """Upload a PIL image to the device."""
     async def _upload(device: OpenDisplayDevice) -> None:

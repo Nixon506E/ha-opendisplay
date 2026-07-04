@@ -70,7 +70,7 @@ upload_image:
               unit_of_measurement: "%"
         use_measured_palettes:
           required: false
-          default: true
+          default: false
           selector:
             boolean:
 
