@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 import contextlib
 from datetime import timedelta
 from enum import IntEnum
+import functools
 import io
 import logging
 import os
@@ -25,6 +26,7 @@ from opendisplay import (
     OpenDisplayError,
     RefreshMode,
     Rotation,
+    prepare_image,
 )
 from PIL import Image as PILImage, ImageOps
 import voluptuous as vol
@@ -344,15 +346,33 @@ async def _async_send_image(
     rotate: Rotation = Rotation.ROTATE_0,
 ) -> None:
     """Upload a PIL image to the device."""
-    async def _upload(device: OpenDisplayDevice) -> None:
-        await device.upload_image(
+    # Split the upload into its heavy CPU half and its BLE-I/O half. The CPU
+    # work (rotate + fit + dither + encode + zlib on a full frame) is offloaded
+    # to an executor thread so it never blocks the event loop; only the BLE
+    # transfer runs on the loop. This mirrors what device.upload_image() does
+    # internally, but that call ran _prepare_image synchronously on the loop.
+    config = entry.runtime_data.device_config
+    display_cfg = config.displays[0] if config and config.displays else None
+    # Match upload_image(): only ask prepare_image() to build compressed data
+    # when the panel actually supports zip. upload_prepared_image() then falls
+    # back to the uncompressed protocol when compressed_data is None.
+    supports_compression = display_cfg.supports_zip if display_cfg else True
+    prepared = await hass.async_add_executor_job(
+        functools.partial(
+            prepare_image,
             img,
-            refresh_mode=refresh_mode,
+            config=config,
             dither_mode=dither_mode,
+            compress=supports_compression,
             tone=tone,
             fit=fit,
             rotate=rotate,
         )
+    )
+
+    async def _upload(device: OpenDisplayDevice) -> None:
+        await device.upload_prepared_image(prepared, refresh_mode=refresh_mode)
+
     await _async_connect_and_run(hass, entry, _upload)
     jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
     async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
