@@ -197,52 +197,59 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
                     "Device not reachable over Bluetooth; bring it within range and retry"
                 )
 
-            # Only EFR32BG22 (Silabs AppLoader) is flashed over BLE here — see
-            # _OTA_INSTALL_IC_TYPES. The device is either in app mode (and needs the
-            # DFU trigger) or already in the AppLoader at the same address (a
-            # previous OTA was interrupted, or it browned out before committing).
-            # Try to trigger from app mode, but tolerate the connect failing — then
-            # the device is already in the AppLoader and we flash it directly, so HA
-            # can recover a stuck device instead of failing hard. A stale proxy GATT
-            # cache from a prior interrupted OTA is handled at the connection layer:
-            # BLEConnection.connect() clears it and retries once.
-            try:
-                _on_log("Connecting to trigger DFU bootloader…")
-                async with OpenDisplayDevice(
-                    mac_address=self._ble_address,
-                    ble_device=ble_device,
-                    encryption_key=_get_encryption_key(self._entry),
-                ) as device:
-                    # Clear the (now fresh) app-mode GATT from the proxy cache so the
-                    # post-reboot AppLoader connection re-discovers the OTA service
-                    # instead of these app-firmware handles.
-                    cleared = await device.clear_gatt_cache()
-                    _on_log(f"Proxy GATT cache clear requested: {cleared}")
-                    await device.trigger_dfu_bootloader()
-            except BLEConnectionError as err:
-                _on_log(
-                    f"App-mode connect failed ({err}); device is likely already "
-                    "in the AppLoader — attempting OTA directly."
+            # Hold the per-MAC BLE lock across the whole OTA (DFU trigger +
+            # AppLoader flash) so a drawcustom/upload/LED/buzzer service call on
+            # this tag can't open an overlapping connection mid-flash. This op
+            # only takes the lock here — it never calls back into a locked
+            # service op — so there is no re-entrant deadlock. The download above
+            # runs outside the lock so it doesn't block other BLE ops needlessly.
+            async with self._entry.runtime_data.ble_lock:
+                # Only EFR32BG22 (Silabs AppLoader) is flashed over BLE here — see
+                # _OTA_INSTALL_IC_TYPES. The device is either in app mode (and needs
+                # the DFU trigger) or already in the AppLoader at the same address (a
+                # previous OTA was interrupted, or it browned out before committing).
+                # Try to trigger from app mode, but tolerate the connect failing —
+                # then the device is already in the AppLoader and we flash it
+                # directly, so HA can recover a stuck device instead of failing hard.
+                # A stale proxy GATT cache from a prior interrupted OTA is handled at
+                # the connection layer: BLEConnection.connect() clears it and retries.
+                try:
+                    _on_log("Connecting to trigger DFU bootloader…")
+                    async with OpenDisplayDevice(
+                        mac_address=self._ble_address,
+                        ble_device=ble_device,
+                        encryption_key=_get_encryption_key(self._entry),
+                    ) as device:
+                        # Clear the (now fresh) app-mode GATT from the proxy cache so
+                        # the post-reboot AppLoader connection re-discovers the OTA
+                        # service instead of these app-firmware handles.
+                        cleared = await device.clear_gatt_cache()
+                        _on_log(f"Proxy GATT cache clear requested: {cleared}")
+                        await device.trigger_dfu_bootloader()
+                except BLEConnectionError as err:
+                    _on_log(
+                        f"App-mode connect failed ({err}); device is likely already "
+                        "in the AppLoader — attempting OTA directly."
+                    )
+
+                # AppLoader advertises at the same address; perform_silabs_ota
+                # retries the connection internally until it is ready.
+                ota_device = async_ble_device_from_address(
+                    self.hass, self._ble_address, connectable=True
+                )
+                if ota_device is None:
+                    raise HomeAssistantError(
+                        "Device not reachable in OTA mode; bring it within range and retry"
+                    )
+                await perform_silabs_ota(
+                    firmware_bytes,
+                    ota_device,
+                    on_progress=_on_progress,
+                    on_log=_on_log,
                 )
 
-            # AppLoader advertises at the same address; perform_silabs_ota retries
-            # the connection internally until it is ready.
-            ota_device = async_ble_device_from_address(
-                self.hass, self._ble_address, connectable=True
-            )
-            if ota_device is None:
-                raise HomeAssistantError(
-                    "Device not reachable in OTA mode; bring it within range and retry"
-                )
-            await perform_silabs_ota(
-                firmware_bytes,
-                ota_device,
-                on_progress=_on_progress,
-                on_log=_on_log,
-            )
-
-            self._attr_installed_version = tag
-            _LOGGER.info("Firmware updated to %s", tag)
+                self._attr_installed_version = tag
+                _LOGGER.info("Firmware updated to %s", tag)
 
         except (OTAError, BLEConnectionError) as err:
             raise HomeAssistantError(f"Firmware update failed: {err}") from err
