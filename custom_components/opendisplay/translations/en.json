@@ -155,7 +155,8 @@
         "refresh_mode": {
             "options": {
                 "fast": "Fast",
-                "full": "Full"
+                "full": "Full",
+                "partial": "Partial"
             }
         }
     },
@@ -180,7 +181,7 @@
                     "name": "Image"
                 },
                 "refresh_mode": {
-                    "description": "The display refresh mode. Full refresh clears ghosting but is slower. Fast refresh is not supported on all displays.",
+                    "description": "The display refresh mode. Full refresh clears ghosting but is slower. Fast refresh is not supported on all displays. Partial updates only the changed region without flashing (B/W panels with partial support; falls back to a full refresh automatically when not possible).",
                     "name": "Refresh mode"
                 },
                 "rotation": {
@@ -315,7 +316,7 @@
                     "name": "Dither mode"
                 },
                 "refresh_type": {
-                    "description": "Display refresh mode.",
+                    "description": "Display refresh mode. Partial updates only the changed region without flashing; falls back to a full refresh automatically when not possible.",
                     "name": "Refresh type"
                 },
                 "dry-run": {
