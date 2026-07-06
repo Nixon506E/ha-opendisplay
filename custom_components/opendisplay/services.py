@@ -24,6 +24,7 @@ from opendisplay import (
     BuzzerActivateConfig,
     OpenDisplayDevice,
     OpenDisplayError,
+    PartialState,
     RefreshMode,
     Rotation,
     prepare_image,
@@ -87,26 +88,24 @@ def _dither_value(value: Any) -> DitherMode:
 
 
 def _refresh_type_value(value: Any) -> RefreshMode:
-    """Accept names ("full"/"fast") and legacy numeric values.
+    """Accept names ("full"/"fast"/"partial") and legacy numeric values.
 
-    `partial` is not implemented yet, so it is not offered and any partial-ish
-    input (legacy 2/3, or an explicit "partial") falls back to fast.
+    Legacy value 3 ("partial2"/full-frame partial) maps to PARTIAL: the library
+    reads the panel's partial_update_support config and expands the region to
+    the full frame automatically where required, so the distinction is obsolete.
     """
     if isinstance(value, (int, float)) or (
         isinstance(value, str) and value.lstrip("-").isdigit()
     ):
         n = int(value)
-        if n in (2, 3):  # legacy partial / partial2 -> fast (partial not implemented)
-            return RefreshMode.FAST
+        if n == 3:  # legacy partial2 / full-frame partial
+            return RefreshMode.PARTIAL
         try:
             mode = RefreshMode(n)
         except ValueError as err:
             raise vol.Invalid(f"Invalid refresh_type: {value}") from err
-    else:
-        mode = _str_to_int_enum(RefreshMode)(value)
-    if mode is RefreshMode.PARTIAL:  # reserved for the future, not implemented yet
-        return RefreshMode.FAST
-    return mode
+        return mode
+    return _str_to_int_enum(RefreshMode)(value)
 
 
 SCHEMA_UPLOAD_IMAGE = vol.Schema(
@@ -119,7 +118,7 @@ SCHEMA_UPLOAD_IMAGE = vol.Schema(
             vol.Coerce(int), vol.Coerce(Rotation)
         ),
         vol.Optional(ATTR_DITHER_MODE, default="burkes"): _str_to_int_enum(DitherMode),
-        vol.Optional(ATTR_REFRESH_MODE, default="full"): _str_to_int_enum(RefreshMode),
+        vol.Optional(ATTR_REFRESH_MODE, default="full"): _refresh_type_value,
         vol.Optional(ATTR_FIT_MODE, default="contain"): _str_to_int_enum(FitMode),
         vol.Optional(ATTR_TONE_COMPRESSION): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=100.0)
@@ -362,9 +361,14 @@ async def _async_send_image(
     config = entry.runtime_data.device_config
     display_cfg = config.displays[0] if config and config.displays else None
     # Match upload_image(): only ask prepare_image() to build compressed data
-    # when the panel actually supports zip. upload_prepared_image() then falls
-    # back to the uncompressed protocol when compressed_data is None.
-    supports_compression = display_cfg.supports_zip if display_cfg else True
+    # when the panel accepts compressed uploads (plain ZIP bit or the
+    # streaming-decompression bit). upload_prepared_image() then falls back to
+    # the uncompressed protocol when compressed_data is None.
+    supports_compression = (
+        (display_cfg.supports_zip or display_cfg.supports_streaming_decompression)
+        if display_cfg
+        else True
+    )
     prepared = await hass.async_add_executor_job(
         functools.partial(
             prepare_image,
@@ -378,8 +382,19 @@ async def _async_send_image(
         )
     )
 
+    # Partial refreshes diff against the entry's tracked frame; full/fast
+    # refreshes re-baseline the panel, so start a fresh state that this upload
+    # seeds (etag + frame) for the next partial. The library handles all
+    # fallbacks (unsupported panel, etag mismatch, firmware NACK) and expands
+    # the region to the full frame on panels that require it
+    # (partial_update_support=2, see OpenDisplay/Firmware#80).
+    runtime = entry.runtime_data
+    if refresh_mode is not RefreshMode.PARTIAL:
+        runtime.partial_state = PartialState()
+    state = runtime.partial_state
+
     async def _upload(device: OpenDisplayDevice) -> None:
-        await device.upload_prepared_image(prepared, refresh_mode=refresh_mode)
+        await device.upload_prepared_image(prepared, refresh_mode=refresh_mode, state=state)
 
     await _async_connect_and_run(hass, entry, _upload)
     jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)

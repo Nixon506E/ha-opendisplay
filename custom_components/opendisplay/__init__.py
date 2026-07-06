@@ -13,6 +13,7 @@ from opendisplay import (
     GlobalConfig,
     OpenDisplayDevice,
     OpenDisplayError,
+    PartialState,
 )
 
 from homeassistant.components.bluetooth import (
@@ -55,6 +56,10 @@ class OpenDisplayRuntimeData:
     # library, so drawcustom/upload_image, LED, buzzer and OTA must not open
     # overlapping connections or they race and surface a confusing upload_error.
     ble_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Tracks the last uploaded frame + etag for differential partial updates
+    # (0x76). Replaced with a fresh instance on every full/fast refresh so the
+    # next partial diffs against the frame actually on the panel.
+    partial_state: PartialState = field(default_factory=PartialState)
 
 
 type OpenDisplayConfigEntry = ConfigEntry[OpenDisplayRuntimeData]
