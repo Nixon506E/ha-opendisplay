@@ -83,6 +83,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
     """Firmware update entity for an OpenDisplay device."""
 
     _attr_latest_version: str | None = None
+    _attr_release_notes: str | None = None
     should_poll = True  # override coordinator's should_poll=False; GitHub needs regular polling
 
     def __init__(self, coordinator, entry: OpenDisplayConfigEntry) -> None:
@@ -145,6 +146,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
             async with session.get(
                 _GITHUB_LATEST.format(repo=self._firmware_repo),
                 headers=_GITHUB_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
@@ -258,6 +260,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
             async with session.get(
                 _GITHUB_RELEASE.format(repo=self._firmware_repo, tag=tag),
                 headers=_GITHUB_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 resp.raise_for_status()
                 release = await resp.json()
@@ -276,7 +279,9 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
 
         _LOGGER.debug("Downloading %s from %s", asset_name, download_url)
         try:
-            async with session.get(download_url) as resp:
+            async with session.get(
+                download_url, timeout=aiohttp.ClientTimeout(total=120)
+            ) as resp:
                 resp.raise_for_status()
                 return await resp.read()
         except aiohttp.ClientError as err:

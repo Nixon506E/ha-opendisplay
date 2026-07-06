@@ -11,11 +11,11 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-from epaper_dithering import ColorScheme
 from odl_renderer import generate_image
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
+    ColorScheme,
     DitherMode,
     FitMode,
     LedFlashConfig,
@@ -261,7 +261,9 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
         )
     session = async_get_clientsession(hass)
     try:
-        async with session.get(url) as resp:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
             resp.raise_for_status()
             data = await resp.read()
     except aiohttp.ClientError as err:
@@ -590,7 +592,7 @@ async def _drawcustom_for_device(
         accent_color=color_scheme.accent_color,
         session=async_get_clientsession(hass),
         data_provider=HADataProvider(hass),
-        font_dirs=_font_search_dirs(hass),
+        font_dirs=await hass.async_add_executor_job(_font_search_dirs, hass),
     )
 
     if call.data["dry-run"]:
