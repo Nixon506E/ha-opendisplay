@@ -312,7 +312,13 @@ async def _async_connect_and_run(
         ) from err
 
     try:
-        async with OpenDisplayDevice(
+        # Serialize all BLE access to this tag: the device has a single BLE link
+        # and the library has no per-address lock, so overlapping connections
+        # (two automations, or a drawcustom racing an LED/buzzer/upload on the
+        # same MAC) fail with a confusing upload_error. The lock is held for the
+        # full connection lifetime and released on error. Held per config entry,
+        # i.e. per MAC, so different tags are not serialized against each other.
+        async with entry.runtime_data.ble_lock, OpenDisplayDevice(
             mac_address=address,
             ble_device=ble_device,
             config=entry.runtime_data.device_config,
@@ -383,6 +389,12 @@ async def _async_upload_image(call: ServiceCall) -> None:
             translation_placeholders={"url": image_data},
         )
 
+    # Latest-wins for upload_image specifically: a newer upload cancels an
+    # older still-running one instead of queuing behind it (an automation
+    # pushing a fresh snapshot supersedes the stale one). This composes with the
+    # per-MAC ble_lock without deadlocking: the cancel + await below happens
+    # before _async_send_image acquires the lock, so the cancelled task releases
+    # the lock (its `async with ble_lock` unwinds) before this one takes it.
     current = asyncio.current_task()
     if (prev := entry.runtime_data.upload_task) is not None and not prev.done():
         prev.cancel()

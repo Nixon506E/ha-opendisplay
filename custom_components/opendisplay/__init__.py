@@ -2,7 +2,7 @@
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from opendisplay import (
@@ -50,6 +50,11 @@ class OpenDisplayRuntimeData:
     device_config: GlobalConfig
     is_flex: bool
     upload_task: asyncio.Task | None = None
+    # Serializes every BLE connection to this tag (one config entry == one MAC).
+    # The device exposes a single BLE link with no per-address lock in the
+    # library, so drawcustom/upload_image, LED, buzzer and OTA must not open
+    # overlapping connections or they race and surface a confusing upload_error.
+    ble_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 type OpenDisplayConfigEntry = ConfigEntry[OpenDisplayRuntimeData]
@@ -185,13 +190,18 @@ async def _async_reload_after_reboot(
     Triggered by the coordinator when the advertised reboot flag goes
     False -> True. Reloading re-runs async_setup_entry, which reconnects (clearing
     the device's reboot flag), re-reads firmware + config, and rebuilds device
-    info and platforms. Defers until any in-progress image upload finishes so an
-    unrelated reboot detection does not abort the user's upload.
+    info and platforms. Defers until any in-flight BLE operation on this tag
+    (upload, drawcustom, LED, buzzer, OTA) finishes so an unrelated reboot
+    detection does not tear the connection out from under it.
     """
     runtime = entry.runtime_data
-    upload_task = runtime.upload_task if runtime is not None else None
-    if upload_task is not None and not upload_task.done():
-        await asyncio.gather(upload_task, return_exceptions=True)
+    if runtime is not None:
+        # Wait for any in-flight BLE op to release the link, then reload. We only
+        # drain (acquire/release) rather than hold the lock across the reload:
+        # async_reload unloads the entry, and async_unload_entry acquires the
+        # same lock, so holding it here would deadlock the reload.
+        async with runtime.ble_lock:
+            pass
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -199,11 +209,17 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: OpenDisplayConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    if (task := entry.runtime_data.upload_task) and not task.done():
+    runtime = entry.runtime_data
+    # Abort an in-flight image upload quickly so unload is not blocked on a long
+    # BLE transfer, then wait for any other in-flight BLE op (LED, buzzer, OTA,
+    # drawcustom) to release the link before tearing the entry down.
+    if (task := runtime.upload_task) and not task.done():
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+    async with runtime.ble_lock:
+        pass
 
     return await hass.config_entries.async_unload_platforms(
-        entry, _get_platforms(entry.runtime_data)
+        entry, _get_platforms(runtime)
     )
