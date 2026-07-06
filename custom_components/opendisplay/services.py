@@ -5,17 +5,18 @@ from collections.abc import Awaitable, Callable
 import contextlib
 from datetime import timedelta
 from enum import IntEnum
+import functools
 import io
 import logging
 import os
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-from epaper_dithering import ColorScheme
 from odl_renderer import generate_image
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
+    ColorScheme,
     DitherMode,
     FitMode,
     LedFlashConfig,
@@ -23,8 +24,10 @@ from opendisplay import (
     BuzzerActivateConfig,
     OpenDisplayDevice,
     OpenDisplayError,
+    PartialState,
     RefreshMode,
     Rotation,
+    prepare_image,
 )
 from PIL import Image as PILImage, ImageOps
 import voluptuous as vol
@@ -58,7 +61,7 @@ ATTR_DITHER_MODE = "dither_mode"
 ATTR_REFRESH_MODE = "refresh_mode"
 ATTR_FIT_MODE = "fit_mode"
 ATTR_TONE_COMPRESSION = "tone_compression"
-ATTR_USE_MEASURED_PALETTES = "use_measured_palettes"
+ATTR_USE_MEASURED_PALETTES = "measured_palette"
 
 
 def _str_to_int_enum(enum_class: type[IntEnum]) -> Callable[[str], Any]:
@@ -86,26 +89,24 @@ def _dither_value(value: Any) -> DitherMode:
 
 
 def _refresh_type_value(value: Any) -> RefreshMode:
-    """Accept names ("full"/"fast") and legacy numeric values.
+    """Accept names ("full"/"fast"/"partial") and legacy numeric values.
 
-    `partial` is not implemented yet, so it is not offered and any partial-ish
-    input (legacy 2/3, or an explicit "partial") falls back to fast.
+    Legacy value 3 ("partial2"/full-frame partial) maps to PARTIAL: the library
+    reads the panel's partial_update_support config and expands the region to
+    the full frame automatically where required, so the distinction is obsolete.
     """
     if isinstance(value, (int, float)) or (
         isinstance(value, str) and value.lstrip("-").isdigit()
     ):
         n = int(value)
-        if n in (2, 3):  # legacy partial / partial2 -> fast (partial not implemented)
-            return RefreshMode.FAST
+        if n == 3:  # legacy partial2 / full-frame partial
+            return RefreshMode.PARTIAL
         try:
             mode = RefreshMode(n)
         except ValueError as err:
             raise vol.Invalid(f"Invalid refresh_type: {value}") from err
-    else:
-        mode = _str_to_int_enum(RefreshMode)(value)
-    if mode is RefreshMode.PARTIAL:  # reserved for the future, not implemented yet
-        return RefreshMode.FAST
-    return mode
+        return mode
+    return _str_to_int_enum(RefreshMode)(value)
 
 
 SCHEMA_UPLOAD_IMAGE = vol.Schema(
@@ -118,7 +119,7 @@ SCHEMA_UPLOAD_IMAGE = vol.Schema(
             vol.Coerce(int), vol.Coerce(Rotation)
         ),
         vol.Optional(ATTR_DITHER_MODE, default="burkes"): _str_to_int_enum(DitherMode),
-        vol.Optional(ATTR_REFRESH_MODE, default="full"): _str_to_int_enum(RefreshMode),
+        vol.Optional(ATTR_REFRESH_MODE, default="full"): _refresh_type_value,
         vol.Optional(ATTR_FIT_MODE, default="contain"): _str_to_int_enum(FitMode),
         vol.Optional(ATTR_TONE_COMPRESSION): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=100.0)
@@ -264,7 +265,9 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
         )
     session = async_get_clientsession(hass)
     try:
-        async with session.get(url) as resp:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
             resp.raise_for_status()
             data = await resp.read()
     except aiohttp.ClientError as err:
@@ -316,7 +319,13 @@ async def _async_connect_and_run(
         ) from err
 
     try:
-        async with OpenDisplayDevice(
+        # Serialize all BLE access to this tag: the device has a single BLE link
+        # and the library has no per-address lock, so overlapping connections
+        # (two automations, or a drawcustom racing an LED/buzzer/upload on the
+        # same MAC) fail with a confusing upload_error. The lock is held for the
+        # full connection lifetime and released on error. Held per config entry,
+        # i.e. per MAC, so different tags are not serialized against each other.
+        async with entry.runtime_data.ble_lock, OpenDisplayDevice(
             mac_address=address,
             ble_device=ble_device,
             config=entry.runtime_data.device_config,
@@ -350,15 +359,49 @@ async def _async_send_image(
     use_measured_palettes: bool = False,
 ) -> None:
     """Upload a PIL image to the device."""
-    async def _upload(device: OpenDisplayDevice) -> None:
-        await device.upload_image(
+    # Split the upload into its heavy CPU half and its BLE-I/O half. The CPU
+    # work (rotate + fit + dither + encode + zlib on a full frame) is offloaded
+    # to an executor thread so it never blocks the event loop; only the BLE
+    # transfer runs on the loop. This mirrors what device.upload_image() does
+    # internally, but that call ran _prepare_image synchronously on the loop.
+    config = entry.runtime_data.device_config
+    display_cfg = config.displays[0] if config and config.displays else None
+    # Match upload_image(): only ask prepare_image() to build compressed data
+    # when the panel accepts compressed uploads (plain ZIP bit or the
+    # streaming-decompression bit). upload_prepared_image() then falls back to
+    # the uncompressed protocol when compressed_data is None.
+    supports_compression = (
+        (display_cfg.supports_zip or display_cfg.supports_streaming_decompression)
+        if display_cfg
+        else True
+    )
+    prepared = await hass.async_add_executor_job(
+        functools.partial(
+            prepare_image,
             img,
-            refresh_mode=refresh_mode,
+            config=config,
             dither_mode=dither_mode,
+            compress=supports_compression,
             tone=tone,
             fit=fit,
             rotate=rotate,
         )
+    )
+
+    # Partial refreshes diff against the entry's tracked frame; full/fast
+    # refreshes re-baseline the panel, so start a fresh state that this upload
+    # seeds (etag + frame) for the next partial. The library handles all
+    # fallbacks (unsupported panel, etag mismatch, firmware NACK) and expands
+    # the region to the full frame on panels that require it
+    # (partial_update_support=2, see OpenDisplay/Firmware#80).
+    runtime = entry.runtime_data
+    if refresh_mode is not RefreshMode.PARTIAL:
+        runtime.partial_state = PartialState()
+    state = runtime.partial_state
+
+    async def _upload(device: OpenDisplayDevice) -> None:
+        await device.upload_prepared_image(prepared, refresh_mode=refresh_mode, state=state)
+
     await _async_connect_and_run(
         hass, entry, _upload, use_measured_palettes=use_measured_palettes
     )
@@ -392,6 +435,12 @@ async def _async_upload_image(call: ServiceCall) -> None:
             translation_placeholders={"url": image_data},
         )
 
+    # Latest-wins for upload_image specifically: a newer upload cancels an
+    # older still-running one instead of queuing behind it (an automation
+    # pushing a fresh snapshot supersedes the stale one). This composes with the
+    # per-MAC ble_lock without deadlocking: the cancel + await below happens
+    # before _async_send_image acquires the lock, so the cancelled task releases
+    # the lock (its `async with ble_lock` unwinds) before this one takes it.
     current = asyncio.current_task()
     if (prev := entry.runtime_data.upload_task) is not None and not prev.done():
         prev.cancel()
@@ -600,7 +649,7 @@ async def _drawcustom_for_device(
         accent_color=color_scheme.accent_color,
         session=async_get_clientsession(hass),
         data_provider=HADataProvider(hass),
-        font_dirs=_font_search_dirs(hass),
+        font_dirs=await hass.async_add_executor_job(_font_search_dirs, hass),
     )
 
     if call.data["dry-run"]:

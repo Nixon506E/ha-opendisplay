@@ -155,7 +155,8 @@
         "refresh_mode": {
             "options": {
                 "fast": "Fast",
-                "full": "Full"
+                "full": "Full",
+                "partial": "Partial"
             }
         }
     },
@@ -180,7 +181,7 @@
                     "name": "Image"
                 },
                 "refresh_mode": {
-                    "description": "The display refresh mode. Full refresh clears ghosting but is slower. Fast refresh is not supported on all displays.",
+                    "description": "The display refresh mode. Full refresh clears ghosting but is slower. Fast refresh is not supported on all displays. Partial updates only the changed region without flashing (B/W panels with partial support; falls back to a full refresh automatically when not possible).",
                     "name": "Refresh mode"
                 },
                 "rotation": {
@@ -191,9 +192,9 @@
                     "description": "Dynamic range compression strength. Leave empty for automatic.",
                     "name": "Tone compression"
                 },
-                "use_measured_palettes": {
-                    "description": "Use measured, per-panel color palettes when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
-                    "name": "Use measured palettes"
+                "measured_palette": {
+                    "description": "Use the panel's measured color palette when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
+                    "name": "Use measured palette"
                 }
             },
             "name": "Upload image",
@@ -319,12 +320,12 @@
                     "name": "Dither mode"
                 },
                 "refresh_type": {
-                    "description": "Display refresh mode.",
+                    "description": "Display refresh mode. Partial updates only the changed region without flashing; falls back to a full refresh automatically when not possible.",
                     "name": "Refresh type"
                 },
-                "use_measured_palettes": {
-                    "description": "Use measured, per-panel color palettes when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
-                    "name": "Use measured palettes"
+                "measured_palette": {
+                    "description": "Use the panel's measured color palette when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.",
+                    "name": "Use measured palette"
                 },
                 "dry-run": {
                     "description": "Generate image without uploading to the device.",
