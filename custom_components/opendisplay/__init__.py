@@ -34,6 +34,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_CACHED_STATE, CONF_ENCRYPTION_KEY, DOMAIN
 from .coordinator import OpenDisplayCoordinator
+from .delivery import DeliveryManager
 from .services import async_setup_services
 from .sleep import SleepProfile
 
@@ -42,8 +43,18 @@ if TYPE_CHECKING:
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-_BASE_PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SENSOR]
-_FLEX_PLATFORMS = [Platform.EVENT, Platform.IMAGE, Platform.SENSOR, Platform.UPDATE]
+_BASE_PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.IMAGE,
+    Platform.SENSOR,
+]
+_FLEX_PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.EVENT,
+    Platform.IMAGE,
+    Platform.SENSOR,
+    Platform.UPDATE,
+]
 
 
 @dataclass
@@ -66,10 +77,11 @@ class OpenDisplayRuntimeData:
     # (0x76). Replaced with a fresh instance on every full/fast refresh so the
     # next partial diffs against the frame actually on the panel.
     partial_state: PartialState = field(default_factory=PartialState)
-    # Set when the entry was set up from cache without connecting; consumed in
-    # Phase 2 by the delivery manager, which re-reads firmware/config at the
-    # next wake. In Phase 1 the resync rides the reboot-edge reload.
+    # Set when the entry was set up from cache without connecting; the delivery
+    # manager re-reads firmware/config at the next wake and refreshes the cache.
     config_resync_pending: bool = False
+    # Owns queued work delivered at the next wake (set in async_setup_entry).
+    delivery: DeliveryManager | None = None
 
 
 type OpenDisplayConfigEntry = ConfigEntry[OpenDisplayRuntimeData]
@@ -286,15 +298,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
             hass, address, profile.availability_interval
         )
 
+    manager = DeliveryManager(hass, entry)
+    entry.runtime_data.delivery = manager
+
     await hass.config_entries.async_forward_entry_setups(
         entry, _get_platforms(entry.runtime_data)
     )
     entry.async_on_unload(coordinator.async_start())
+    manager.async_start()
+
+    if from_cache:
+        # Re-read firmware/config on the next wake and refresh the cache.
+        manager.request_config_resync()
 
     @callback
     def _schedule_reboot_reload() -> None:
-        """Re-read firmware/config after the device signals a reboot."""
-        hass.async_create_task(_async_reload_after_reboot(hass, entry))
+        """React to the device's advertised reboot edge.
+
+        For sleepy devices the firmware's unpersisted reboot flag makes every
+        wake look like a reboot, and a reconnecting reload races the wake
+        window; route to an opportunistic config resync instead. Non-sleepy
+        devices keep the reload behavior.
+        """
+        if profile.is_sleepy:
+            manager.request_config_resync()
+        else:
+            hass.async_create_task(_async_reload_after_reboot(hass, entry))
 
     entry.async_on_unload(coordinator.async_subscribe_reboot(_schedule_reboot_reload))
 
@@ -337,9 +366,12 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     runtime = entry.runtime_data
-    # Abort an in-flight image upload quickly so unload is not blocked on a long
-    # BLE transfer, then wait for any other in-flight BLE op (LED, buzzer, OTA,
+    # Cancel pending deadline timers and any in-flight delivery task, then abort
+    # an in-flight image upload quickly so unload is not blocked on a long BLE
+    # transfer, then wait for any other in-flight BLE op (LED, buzzer, OTA,
     # drawcustom) to release the link before tearing the entry down.
+    if runtime.delivery is not None:
+        await runtime.delivery.async_shutdown()
     if (task := runtime.upload_task) and not task.done():
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
