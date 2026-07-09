@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from opendisplay import AuthenticationFailedError, BLEConnectionError, RefreshMode
 import pytest
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.opendisplay import delivery as delivery_mod
 from custom_components.opendisplay.const import (
     EVENT_CONTENT_DELIVERED,
@@ -228,6 +230,73 @@ async def test_drain_ble_failure_keeps_slot_and_counts_attempt():
 
     assert mgr.state.pending is True
     assert mgr.state.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_drain_deadline_timeout_raises_and_counts_attempt():
+    """Exceeding DELIVERY_DEADLINE_S raises loudly but keeps the slot queued."""
+    hass, entry, _ = _make_env()
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+        patch.object(delivery_mod, "async_ble_device_from_address", return_value=MagicMock()),
+        patch.object(
+            delivery_mod,
+            "OpenDisplayDevice",
+            side_effect=_raising_device_ctx(TimeoutError()),
+        ),
+    ):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        with pytest.raises(HomeAssistantError):
+            await mgr._deliver()
+
+    # The slot is retained for the next wake and the failed attempt is recorded.
+    assert mgr.state.pending is True
+    assert mgr.state.attempts == 1
+    assert "deadline exceeded" in (mgr.state.last_error or "")
+    # Background-task bookkeeping is still cleaned up despite the raise.
+    assert mgr._delivering is False
+    assert mgr._delivery_task is None
+
+
+@pytest.mark.asyncio
+async def test_drain_gives_up_after_max_attempts():
+    """After MAX_DELIVERY_ATTEMPTS failures the slot is dropped with an expired event."""
+    hass, entry, _ = _make_env()
+    deadline_cancel = MagicMock()
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=deadline_cancel),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+        patch.object(delivery_mod, "async_ble_device_from_address", return_value=MagicMock()),
+        patch.object(
+            delivery_mod,
+            "OpenDisplayDevice",
+            side_effect=_raising_device_ctx(BLEConnectionError("boom")),
+        ),
+    ):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        for attempt in range(1, delivery_mod.MAX_DELIVERY_ATTEMPTS + 1):
+            await mgr._deliver()
+            if attempt < delivery_mod.MAX_DELIVERY_ATTEMPTS:
+                # Still queued and retriable until the cap is reached.
+                assert mgr.state.pending is True
+                assert mgr.state.attempts == attempt
+
+    # On the capped attempt the slot is dropped and the expiry timer cancelled.
+    assert mgr.state.pending is False
+    assert mgr.state.last_error == "failed"
+    deadline_cancel.assert_called_once()
+
+    # A content_expired event fired once, carrying attempts == the cap.
+    expired = [
+        c.args[1]
+        for c in hass.bus.async_fire.call_args_list
+        if c.args[0] == EVENT_CONTENT_EXPIRED
+    ]
+    assert len(expired) == 1
+    assert expired[0]["attempts"] == delivery_mod.MAX_DELIVERY_ATTEMPTS
 
 
 @pytest.mark.asyncio

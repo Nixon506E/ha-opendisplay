@@ -38,6 +38,7 @@ from opendisplay import (
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -57,8 +58,18 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Upper bound on a single wake's delivery attempt: connection establishment plus
-# the queued work. Bounds one bad wake so it cannot overlap the next.
-DELIVERY_DEADLINE_S = 30.0
+# the queued work. Bounds one bad wake so it cannot overlap the next. The device
+# stays awake while the BLE link is held, so this is sized to let a full image
+# stream over a slow link within one wake rather than to cap a healthy transfer.
+# Exceeding it is therefore treated as a genuine failure (payload too large / link
+# too slow) and surfaced loudly by ``_deliver`` instead of silently retried.
+DELIVERY_DEADLINE_S = 600.0
+
+# Give up a queued upload after this many failed wake attempts. Without this cap a
+# frame that can never be delivered (unsupported payload, link too slow) would
+# retry on every wake until ``queue_timeout`` hours later; instead it is dropped
+# with a ``content_expired`` event so the failure surfaces promptly.
+MAX_DELIVERY_ATTEMPTS = 5
 
 # Sentinel distinguishing "no key" (None) from "malformed key" during resolve.
 _KEY_INVALID = object()
@@ -243,7 +254,29 @@ class DeliveryManager:
             await self._drain_once()
         except asyncio.CancelledError:
             raise
-        except (BLEConnectionError, BLETimeoutError, TimeoutError) as err:
+        except TimeoutError as err:
+            # The whole drain exceeded DELIVERY_DEADLINE_S. Because the device
+            # stays awake while connected, hitting this ceiling is not a missed
+            # wake but a genuine failure: the payload is too large or the link too
+            # slow to complete in one wake. Record it, log loudly, and raise so it
+            # is not swallowed as a routine retry. (py-opendisplay wraps its own
+            # read/connect timeouts as BLETimeoutError, so a bare TimeoutError here
+            # can only be the asyncio.timeout(DELIVERY_DEADLINE_S) firing.)
+            self._register_attempt_failure(
+                f"delivery deadline exceeded ({DELIVERY_DEADLINE_S:.0f}s)"
+            )
+            _LOGGER.error(
+                "%s: delivery aborted after exceeding the %.0f s deadline; the "
+                "image is likely too large to stream within a single wake",
+                self._address,
+                DELIVERY_DEADLINE_S,
+            )
+            raise HomeAssistantError(
+                f"OpenDisplay {self._address}: delivery timed out after "
+                f"{DELIVERY_DEADLINE_S:.0f}s (image too large or BLE link too slow "
+                "to finish in one wake)"
+            ) from err
+        except (BLEConnectionError, BLETimeoutError) as err:
             # Device slept mid-connect or the wake window was missed; keep the
             # work queued and try again on the next wake.
             self._register_attempt_failure(str(err))
@@ -366,16 +399,50 @@ class DeliveryManager:
         self._fire_content_event(EVENT_CONTENT_EXPIRED, slot)
         self._notify_state()
 
+    @callback
+    def _give_up_upload(self, slot: PendingUpload, reason: str) -> None:
+        """Drop an upload that has exhausted ``MAX_DELIVERY_ATTEMPTS``.
+
+        Cancels the pending expiry timer, clears the slot, and fires the same
+        ``content_expired`` event as time-based expiry — the payload's
+        ``attempts == MAX_DELIVERY_ATTEMPTS`` distinguishes this cause, and the
+        entity's ``last_error`` reads ``"failed"`` rather than ``"expired"``.
+        """
+        if slot.cancel_deadline:
+            slot.cancel_deadline()
+            slot.cancel_deadline = None
+        self._pending_upload = None
+        self._last_error = "failed"
+        _LOGGER.error(
+            "%s: giving up queued content after %s failed delivery attempts (%s)",
+            self._address,
+            slot.attempts,
+            reason,
+        )
+        self._fire_content_event(EVENT_CONTENT_EXPIRED, slot)
+        self._notify_state()
+
     # -- helpers ------------------------------------------------------------
 
     def _register_attempt_failure(self, reason: str) -> None:
-        """Record a failed wake attempt and keep the work queued."""
-        if self._pending_upload is not None:
-            self._pending_upload.attempts += 1
+        """Record a failed wake attempt and keep the work queued.
+
+        After ``MAX_DELIVERY_ATTEMPTS`` failures the upload is given up and
+        dropped (``_give_up_upload``) so a frame that can never be delivered does
+        not retry on every wake until ``queue_timeout``.
+        """
+        upload = self._pending_upload
+        if upload is not None:
+            upload.attempts += 1
+            if upload.attempts >= MAX_DELIVERY_ATTEMPTS:
+                self._give_up_upload(upload, reason)
+                return
         self._last_error = reason
         _LOGGER.debug(
-            "%s: delivery attempt failed (%s); will retry next wake",
+            "%s: delivery attempt %s/%s failed (%s); will retry next wake",
             self._address,
+            upload.attempts if upload is not None else 0,
+            MAX_DELIVERY_ATTEMPTS,
             reason,
         )
         self._notify_state()
