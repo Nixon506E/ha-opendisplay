@@ -3,10 +3,12 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import time
 
 from opendisplay import voltage_to_percent
 from opendisplay.models.enums import CapacityEstimator, PowerMode
 
+from homeassistant.components.bluetooth import async_last_service_info
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -77,11 +79,9 @@ _LAST_SEEN_DESCRIPTION = OpenDisplaySensorEntityDescription(
     device_class=SensorDeviceClass.TIMESTAMP,
     entity_category=EntityCategory.DIAGNOSTIC,
     entity_registry_enabled_default=False,
-    value_fn=lambda upd: (
-        datetime.fromtimestamp(upd.last_seen, tz=timezone.utc)
-        if upd.last_seen is not None
-        else None
-    ),
+    # native_value is overridden by OpenDisplayLastSeenSensor, so this value_fn
+    # is dead code; value_fn is a required field, hence the no-op.
+    value_fn=lambda _upd: None,
 )
 
 
@@ -116,7 +116,11 @@ async def async_setup_entry(
         ]
 
     async_add_entities(
-        OpenDisplaySensorEntity(coordinator, description)
+        (
+            OpenDisplayLastSeenSensor(coordinator, description)
+            if description.key == "last_seen"
+            else OpenDisplaySensorEntity(coordinator, description)
+        )
         for description in descriptions
     )
 
@@ -132,3 +136,22 @@ class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
         if self.coordinator.data is None:
             return None
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+class OpenDisplayLastSeenSensor(OpenDisplaySensorEntity):
+    """last_seen sourced from the bluetooth stack, not the gated callback."""
+
+    @property
+    def native_value(self) -> datetime | None:
+        # connectable=False matches the Bluetooth advertisement monitor's
+        # "updated" field: _all_history, refreshed on every received advert
+        # before core's connectable/de-dup gates.
+        info = async_last_service_info(
+            self.hass, self.coordinator.address, connectable=False
+        )
+        if info is None:
+            return None
+        # info.time is a monotonic clock (monotonic_time_coarse); convert to
+        # wall time with the same offset the advertisement monitor uses.
+        wall = info.time + (time.time() - time.monotonic())
+        return datetime.fromtimestamp(wall, tz=timezone.utc)
