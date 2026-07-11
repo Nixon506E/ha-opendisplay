@@ -1,5 +1,6 @@
 """Config flow for OpenDisplay integration."""
 
+import asyncio
 from collections.abc import Mapping
 import logging
 from typing import TYPE_CHECKING, Any
@@ -46,6 +47,7 @@ from .const import (
     CONF_PROBE_BEFORE_QUEUE,
     CONF_QUEUE_TIMEOUT_HOURS,
     CONF_SLEEP_MODE,
+    CONNECT_PROBE_DEADLINE_S,
     DEFAULT_BLOCKS_PER_ACK,
     DEFAULT_MAX_QUEUE_SIZE,
     DEFAULT_MISSED_CYCLES,
@@ -148,10 +150,22 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         if ble_device is None:
             raise BLEConnectionError(f"Could not find connectable device for {address}")
 
-        async with OpenDisplayDevice(
-            mac_address=address, ble_device=ble_device, encryption_key=encryption_key
-        ) as device:
-            await device.read_firmware_version()
+        # Bound the whole probe (connect + auto-interrogate + firmware read) so a
+        # wedged BLE link can't freeze the config dialog. A breach is surfaced as
+        # BLEConnectionError, which the callers' existing OpenDisplayError handling
+        # maps to "cannot_connect"; AuthenticationRequiredError still propagates.
+        try:
+            async with asyncio.timeout(CONNECT_PROBE_DEADLINE_S):
+                async with OpenDisplayDevice(
+                    mac_address=address,
+                    ble_device=ble_device,
+                    encryption_key=encryption_key,
+                ) as device:
+                    await device.read_firmware_version()
+        except TimeoutError as err:
+            raise BLEConnectionError(
+                f"Connection probe exceeded {CONNECT_PROBE_DEADLINE_S:.0f}s"
+            ) from err
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -174,6 +188,10 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await self._async_test_connection(self._discovery_info.address)
             except AuthenticationRequiredError:
+                _LOGGER.debug(
+                    "%s: device requires an encryption key; prompting for one",
+                    self._discovery_info.address,
+                )
                 return await self.async_step_encryption_key()
             except OpenDisplayError:
                 errors["base"] = "cannot_connect"
@@ -206,6 +224,9 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await self._async_test_connection(address)
             except AuthenticationRequiredError:
+                _LOGGER.debug(
+                    "%s: device requires an encryption key; prompting for one", address
+                )
                 self.context["title_placeholders"] = {
                     "name": self._discovered_devices[address].name
                 }
@@ -256,7 +277,8 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         """Test connection, populate errors, and return True on success."""
         try:
             await self._async_test_connection(address, encryption_key)
-        except (AuthenticationFailedError, AuthenticationRequiredError):
+        except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+            _LOGGER.debug("%s: encryption key rejected (%s)", address, err)
             errors[CONF_ENCRYPTION_KEY] = "invalid_auth"
         except OpenDisplayError:
             errors["base"] = "cannot_connect"

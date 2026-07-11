@@ -463,11 +463,19 @@ class DeliveryManager:
         if raw is None:
             return None
         if len(raw) != 32:
+            _LOGGER.error(
+                "%s: stored encryption key is malformed (bad length); reauthentication required",
+                self._address,
+            )
             self._entry.async_start_reauth(self._hass)
             return _KEY_INVALID
         try:
             return bytes.fromhex(raw)
         except ValueError:
+            _LOGGER.error(
+                "%s: stored encryption key is malformed (not hex); reauthentication required",
+                self._address,
+            )
             self._entry.async_start_reauth(self._hass)
             return _KEY_INVALID
 

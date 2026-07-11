@@ -358,6 +358,10 @@ async def _async_connect_and_run(
 
     raw_key = entry.data.get(CONF_ENCRYPTION_KEY)
     if raw_key is not None and len(raw_key) != 32:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (bad length); reauthentication required",
+            address,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"
@@ -365,6 +369,10 @@ async def _async_connect_and_run(
     try:
         encryption_key = bytes.fromhex(raw_key) if raw_key is not None else None
     except ValueError as err:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (not hex); reauthentication required",
+            address,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"
@@ -417,6 +425,11 @@ async def _async_connect_and_run(
             },
         ) from err
     except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+        _LOGGER.warning(
+            "%s: device rejected the encryption key (%s); reauthentication required",
+            address,
+            err,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"

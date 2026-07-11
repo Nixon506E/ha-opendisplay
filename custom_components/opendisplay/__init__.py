@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -32,7 +33,7 @@ from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_CACHED_STATE, CONF_ENCRYPTION_KEY, DOMAIN
+from .const import CONF_CACHED_STATE, CONF_ENCRYPTION_KEY, DOMAIN, SETUP_DEADLINE_S
 from .coordinator import OpenDisplayCoordinator
 from .delivery import DeliveryManager
 from .services import async_setup_services
@@ -40,6 +41,8 @@ from .sleep import SleepProfile
 
 if TYPE_CHECKING:
     from opendisplay.models import FirmwareVersion
+
+_LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -164,12 +167,20 @@ def _get_encryption_key(entry: OpenDisplayConfigEntry) -> bytes | None:
     if raw is None:
         return None
     if len(raw) != 32:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (bad length); reauthentication required",
+            entry.unique_id,
+        )
         raise ConfigEntryAuthFailed(
             "Stored OpenDisplay encryption key is invalid; reauthentication required"
         )
     try:
         return bytes.fromhex(raw)
     except ValueError as err:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (not hex); reauthentication required",
+            entry.unique_id,
+        )
         raise ConfigEntryAuthFailed(
             "Stored OpenDisplay encryption key is invalid; reauthentication required"
         ) from err
@@ -220,23 +231,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
     else:
         encryption_key = _get_encryption_key(entry)
         try:
-            async with OpenDisplayDevice(
-                mac_address=address,
-                ble_device=ble_device,
-                encryption_key=encryption_key,
-            ) as device:
-                fw = await device.read_firmware_version()
-                is_flex = device.is_flex
-                # Capture while connected: landing_url() reads the advertised name.
-                landing_url = device.landing_url()
+            # Bound the active connect (connect + interrogate + firmware read) so a
+            # wedged BLE link can't stall setup forever; a breach is treated like
+            # any other connect failure below (sleepy-cache fallback / retry).
+            async with asyncio.timeout(SETUP_DEADLINE_S):
+                async with OpenDisplayDevice(
+                    mac_address=address,
+                    ble_device=ble_device,
+                    encryption_key=encryption_key,
+                ) as device:
+                    fw = await device.read_firmware_version()
+                    is_flex = device.is_flex
+                    # Capture while connected: landing_url() reads the advertised name.
+                    landing_url = device.landing_url()
             device_config = device.config
             if TYPE_CHECKING:
                 assert device_config is not None
         except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+            _LOGGER.warning(
+                "%s: device rejected the encryption key during setup (%s); "
+                "reauthentication required",
+                address,
+                err,
+            )
             raise ConfigEntryAuthFailed(
                 f"Encryption key rejected by OpenDisplay device: {err}"
             ) from err
-        except (BLEConnectionError, BLETimeoutError, OpenDisplayError) as err:
+        except (
+            BLEConnectionError,
+            BLETimeoutError,
+            OpenDisplayError,
+            TimeoutError,
+        ) as err:
             cached = _cache_setup_if_sleepy(entry)
             if cached is None:
                 raise ConfigEntryNotReady(

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
 
 import aiohttp
 from opendisplay.device import OpenDisplayDevice
-from opendisplay.exceptions import BLEConnectionError, OTAError
+from opendisplay.exceptions import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    OTAError,
+)
 from opendisplay.models.enums import ICType
 from opendisplay.models.firmware import firmware_ota_asset, firmware_release_repo
 from opendisplay.ota import perform_silabs_ota
@@ -21,7 +27,7 @@ from homeassistant.components.update import (
     UpdateEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -34,6 +40,13 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 # GitHub unauthenticated API allows 60 requests/hour; 6h interval = 4 req/day per device
 SCAN_INTERVAL = timedelta(hours=6)
+
+# Wall-clock ceiling on the BLE portion of an OTA (DFU trigger + AppLoader flash).
+# perform_silabs_ota retries the connection internally, so a device that keeps
+# half-connecting could otherwise hold the per-MAC BLE lock indefinitely. Sized
+# for a full flash over a slow link; a breach is a genuine failure, not a healthy
+# transfer. The firmware download runs outside this (its own aiohttp timeout).
+OTA_INSTALL_DEADLINE_S = 600.0
 
 _GITHUB_LATEST = "https://api.github.com/repos/{repo}/releases/latest"
 _GITHUB_RELEASE = "https://api.github.com/repos/{repo}/releases/tags/{tag}"
@@ -207,6 +220,10 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         def _on_log(msg: str) -> None:
             _LOGGER.debug("OTA: %s", msg)
 
+        # Bound to the OTA deadline block so its .expired() distinguishes a
+        # deadline breach from an unrelated TimeoutError (e.g. an aiohttp download
+        # total-timeout, which is a bare TimeoutError, not an aiohttp.ClientError).
+        ota_deadline: asyncio.Timeout | None = None
         try:
             firmware_bytes = await self._download_asset(tag, asset_name)
 
@@ -224,7 +241,12 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
             # only takes the lock here — it never calls back into a locked
             # service op — so there is no re-entrant deadlock. The download above
             # runs outside the lock so it doesn't block other BLE ops needlessly.
-            async with self._entry.runtime_data.ble_lock:
+            # Bound the BLE work with a wall-clock deadline so a device that keeps
+            # half-connecting can't hold the lock forever (OTA_INSTALL_DEADLINE_S).
+            async with (
+                asyncio.timeout(OTA_INSTALL_DEADLINE_S) as ota_deadline,
+                self._entry.runtime_data.ble_lock,
+            ):
                 # Only EFR32BG22 (Silabs AppLoader) is flashed over BLE here — see
                 # _OTA_INSTALL_IC_TYPES. The device is either in app mode (and needs
                 # the DFU trigger) or already in the AppLoader at the same address (a
@@ -272,6 +294,40 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
                 self._attr_installed_version = tag
                 _LOGGER.info("Firmware updated to %s", tag)
 
+        except TimeoutError as err:
+            # Only relabel when our OTA deadline actually fired; re-raise any other
+            # TimeoutError (e.g. a download total-timeout) with its true cause.
+            if ota_deadline is not None and ota_deadline.expired():
+                raise HomeAssistantError(
+                    f"Firmware update timed out after {OTA_INSTALL_DEADLINE_S:.0f}s"
+                ) from err
+            raise
+        except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+            # The app-mode connect for the DFU trigger authenticates with the
+            # stored key. An auth failure here is a subclass of OpenDisplayError,
+            # not OTAError/BLEConnectionError, so without this it would leak as a
+            # raw exception with no reauth. Start reauth and surface the standard
+            # auth message.
+            _LOGGER.warning(
+                "%s: device rejected the encryption key during OTA (%s); "
+                "reauthentication required",
+                self._ble_address,
+                err,
+            )
+            self._entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="authentication_error",
+            ) from err
+        except ConfigEntryAuthFailed as err:
+            # Malformed stored key — already logged at ERROR in _get_encryption_key.
+            # Convert to reauth + the standard auth message (a raw ConfigEntryAuthFailed
+            # from an entity method does not auto-trigger reauth).
+            self._entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="authentication_error",
+            ) from err
         except (OTAError, BLEConnectionError) as err:
             raise HomeAssistantError(f"Firmware update failed: {err}") from err
         finally:

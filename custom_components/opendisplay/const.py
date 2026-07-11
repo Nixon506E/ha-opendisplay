@@ -28,6 +28,14 @@ DEFAULT_MISSED_CYCLES = 3
 CONF_QUEUE_TIMEOUT_HOURS = "queue_timeout_hours"
 DEFAULT_QUEUE_TIMEOUT_HOURS = 24
 
+# Wall-clock ceilings on the two interactive active-connect paths. Unlike the
+# delivery deadline (DELIVERY_DEADLINE_S, sized for a full image stream), these
+# bound a lightweight connect + interrogate + firmware read so a wedged BLE link
+# (stalled notify subscription or a GATT write stuck at a proxy) surfaces as a
+# typed error instead of hanging the user (config-flow dialog) or setup forever.
+CONNECT_PROBE_DEADLINE_S = 45.0  # config-flow connection probe (user waiting)
+SETUP_DEADLINE_S = 60.0  # entry-setup active connect (has sleepy-cache fallback)
+
 # Probe a probably-asleep device with one short connect attempt before queuing
 # an image send. Catches wake adverts the scanner missed and Silabs tags that
 # advertise continuously despite a battery+deep-sleep power config. Bounded
