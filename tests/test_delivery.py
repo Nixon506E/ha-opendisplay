@@ -425,5 +425,45 @@ async def test_drain_threads_pipe_kwargs_custom():
     assert kwargs["max_queue_size"] == 1
 
 
+@pytest.mark.asyncio
+async def test_drain_passes_state_and_refresh_mode():
+    """Wake/queued delivery pins the pipe-partial signature: the entry's
+    PartialState and the queued refresh_mode reach upload_prepared_image.
+
+    The library keeps the ``upload_prepared_image(prepared, refresh_mode=,
+    state=)`` contract for pipe-partial, so the integration needs no behavior
+    change -- this guards that the wake path keeps threading both kwargs.
+    """
+    hass, entry, _ = _make_env()
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    sentinel_state = MagicMock()
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+        patch.object(
+            delivery_mod, "async_ble_device_from_address", return_value=MagicMock()
+        ),
+        patch.object(
+            delivery_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
+        ),
+    ):
+        mgr = DeliveryManager(hass, entry)
+        mgr.submit_upload(
+            prepared=(b"img", None, object()),
+            refresh_mode=RefreshMode.PARTIAL,
+            partial_state=sentinel_state,
+            use_measured_palettes=False,
+            preview_jpeg=b"jpeg",
+            device_id="dev1",
+        )
+        await mgr._deliver()
+
+    device.upload_prepared_image.assert_awaited_once()
+    call = device.upload_prepared_image.await_args
+    assert call.kwargs["state"] is sentinel_state
+    assert call.kwargs["refresh_mode"] is RefreshMode.PARTIAL
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

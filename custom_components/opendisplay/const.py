@@ -40,7 +40,7 @@ DEFAULT_PROBE_BEFORE_QUEUE = True
 # (window W). max_queue_size == 1 disables fast transfer (legacy
 # stop-and-wait only).
 CONF_BLOCKS_PER_ACK = "blocks_per_ack"
-DEFAULT_BLOCKS_PER_ACK = 8
+DEFAULT_BLOCKS_PER_ACK = 4
 
 CONF_MAX_QUEUE_SIZE = "max_queue_size"
 DEFAULT_MAX_QUEUE_SIZE = 16

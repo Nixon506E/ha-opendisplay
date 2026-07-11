@@ -298,5 +298,33 @@ async def test_pipe_kwargs_custom():
     assert kwargs["max_queue_size"] == 1
 
 
+@pytest.mark.asyncio
+async def test_live_send_passes_state_and_refresh_mode():
+    """Live-send path pins the pipe-partial signature: the entry's PartialState
+    and the requested refresh_mode reach upload_prepared_image.
+
+    The library keeps the ``upload_prepared_image(prepared, refresh_mode=,
+    state=)`` contract for pipe-partial, so the integration needs no behavior
+    change -- this guards that the live path keeps threading both kwargs.
+    """
+    hass, entry, _, manager = _make_env(
+        profile=_profile(sleep_mode="off"), last_seen=None
+    )
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    od = _device_ctx_factory(device=device)
+    p1, p2, p3, p4, p5 = _patches(od)
+    with p1, p2, p3, p4, p5:
+        receipt = await _send(hass, entry)
+
+    assert receipt.status == "delivered"
+    device.upload_prepared_image.assert_awaited_once()
+    call = device.upload_prepared_image.await_args
+    # _send uses RefreshMode.FULL, so the service re-baselines partial_state to
+    # a fresh PartialState and hands that same object to the library.
+    assert call.kwargs["state"] is entry.runtime_data.partial_state
+    assert call.kwargs["refresh_mode"] is RefreshMode.FULL
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

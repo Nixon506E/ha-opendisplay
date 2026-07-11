@@ -70,7 +70,7 @@ from .const import (
     DOMAIN,
     SIGNAL_IMAGE_UPDATED,
 )
-from .delivery import DeliveryReceipt
+from .delivery import DELIVERY_DEADLINE_S, DeliveryReceipt
 
 ATTR_IMAGE = "image"
 ATTR_ROTATION = "rotation"
@@ -391,15 +391,31 @@ async def _async_connect_and_run(
         # same MAC) fail with a confusing upload_error. The lock is held for the
         # full connection lifetime and released on error. Held per config entry,
         # i.e. per MAC, so different tags are not serialized against each other.
-        async with entry.runtime_data.ble_lock, OpenDisplayDevice(
-            mac_address=address,
-            ble_device=ble_device,
-            config=entry.runtime_data.device_config,
-            use_measured_palettes=use_measured_palettes,
-            encryption_key=encryption_key,
-            **device_kwargs,
-        ) as device:
+        # Same wall-clock ceiling as the queued-delivery drain: without it a
+        # wedged transfer would hold ble_lock forever and block every later
+        # operation on this MAC (the library's per-read timeouts bound normal
+        # failures, but not adversarial/buggy-firmware frame streams).
+        async with (
+            asyncio.timeout(DELIVERY_DEADLINE_S),
+            entry.runtime_data.ble_lock,
+            OpenDisplayDevice(
+                mac_address=address,
+                ble_device=ble_device,
+                config=entry.runtime_data.device_config,
+                use_measured_palettes=use_measured_palettes,
+                encryption_key=encryption_key,
+                **device_kwargs,
+            ) as device,
+        ):
             await action(device)
+    except TimeoutError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="upload_error",
+            translation_placeholders={
+                "error": f"operation exceeded {DELIVERY_DEADLINE_S:.0f}s deadline"
+            },
+        ) from err
     except (AuthenticationFailedError, AuthenticationRequiredError) as err:
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
