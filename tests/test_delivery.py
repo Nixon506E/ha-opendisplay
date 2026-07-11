@@ -16,6 +16,10 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.opendisplay import delivery as delivery_mod
 from custom_components.opendisplay.const import (
+    CONF_BLOCKS_PER_ACK,
+    CONF_MAX_QUEUE_SIZE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
     EVENT_CONTENT_DELIVERED,
     EVENT_CONTENT_EXPIRED,
 )
@@ -38,7 +42,7 @@ def _profile(**overrides):
     return SleepProfile.create(**params)
 
 
-def _make_env(profile=None, entry_data=None, last_seen=None):
+def _make_env(profile=None, entry_data=None, last_seen=None, options=None):
     """Return (hass, entry, coordinator) with a fake runtime for the manager."""
     profile = profile or _profile()
     coordinator = MagicMock()
@@ -57,6 +61,7 @@ def _make_env(profile=None, entry_data=None, last_seen=None):
     entry.unique_id = ADDRESS
     entry.runtime_data = runtime
     entry.data = entry_data if entry_data is not None else {}
+    entry.options = options if options is not None else {}
     entry.async_start_reauth = MagicMock()
     hass = MagicMock()
     return hass, entry, coordinator
@@ -368,6 +373,56 @@ async def test_shutdown_unsubscribes_and_cancels_deadline():
 
     unsub.assert_called_once()
     deadline_cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_drain_threads_pipe_kwargs_default():
+    """No options set: library sliding-window defaults reach the constructor."""
+    hass, entry, _ = _make_env()
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+        patch.object(delivery_mod, "async_ble_device_from_address", return_value=MagicMock()),
+        patch.object(
+            delivery_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
+        ) as od,
+    ):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        await mgr._deliver()
+
+    device.upload_prepared_image.assert_awaited_once()
+    kwargs = od.call_args.kwargs
+    assert kwargs["blocks_per_ack"] == DEFAULT_BLOCKS_PER_ACK
+    assert kwargs["max_queue_size"] == DEFAULT_MAX_QUEUE_SIZE
+
+
+@pytest.mark.asyncio
+async def test_drain_threads_pipe_kwargs_custom():
+    """Configured entry options reach the OpenDisplayDevice constructor."""
+    hass, entry, _ = _make_env(
+        options={CONF_BLOCKS_PER_ACK: 4, CONF_MAX_QUEUE_SIZE: 1}
+    )
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+        patch.object(delivery_mod, "async_ble_device_from_address", return_value=MagicMock()),
+        patch.object(
+            delivery_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
+        ) as od,
+    ):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        await mgr._deliver()
+
+    device.upload_prepared_image.assert_awaited_once()
+    kwargs = od.call_args.kwargs
+    assert kwargs["blocks_per_ack"] == 4
+    assert kwargs["max_queue_size"] == 1
 
 
 if __name__ == "__main__":

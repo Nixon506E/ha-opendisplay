@@ -45,7 +45,11 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 
 from .const import (
+    CONF_BLOCKS_PER_ACK,
     CONF_ENCRYPTION_KEY,
+    CONF_MAX_QUEUE_SIZE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
     EVENT_CONTENT_DELIVERED,
     EVENT_CONTENT_EXPIRED,
     SIGNAL_IMAGE_UPDATED,
@@ -322,6 +326,12 @@ class DeliveryManager:
                     config=runtime.device_config,
                     use_measured_palettes=use_measured,
                     encryption_key=key,  # type: ignore[arg-type]
+                    blocks_per_ack=self._entry.options.get(
+                        CONF_BLOCKS_PER_ACK, DEFAULT_BLOCKS_PER_ACK
+                    ),
+                    max_queue_size=self._entry.options.get(
+                        CONF_MAX_QUEUE_SIZE, DEFAULT_MAX_QUEUE_SIZE
+                    ),
                 ) as device,
             ):
                 if upload is not None and not upload.paused:

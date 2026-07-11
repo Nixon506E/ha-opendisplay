@@ -35,6 +35,16 @@ DEFAULT_QUEUE_TIMEOUT_HOURS = 24
 CONF_PROBE_BEFORE_QUEUE = "probe_before_queue"
 DEFAULT_PROBE_BEFORE_QUEUE = True
 
+# BLE sliding-window pipe transfer (py-opendisplay pipe client). Frames sent
+# per acknowledgment (QUIC-style N) and maximum upload frames in flight
+# (window W). max_queue_size == 1 disables fast transfer (legacy
+# stop-and-wait only).
+CONF_BLOCKS_PER_ACK = "blocks_per_ack"
+DEFAULT_BLOCKS_PER_ACK = 8
+
+CONF_MAX_QUEUE_SIZE = "max_queue_size"
+DEFAULT_MAX_QUEUE_SIZE = 16
+
 # --- Cache ------------------------------------------------------------------
 # entry.data key holding the serialized device state used to set up the entry
 # without connecting when a sleepy device is dark at startup.

@@ -16,6 +16,12 @@ from PIL import Image as PILImage
 import pytest
 
 from custom_components.opendisplay import services as services_mod
+from custom_components.opendisplay.const import (
+    CONF_BLOCKS_PER_ACK,
+    CONF_MAX_QUEUE_SIZE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
+)
 from custom_components.opendisplay.delivery import DeliveryReceipt
 from custom_components.opendisplay.services import (
     PROBE_CONNECT_TIMEOUT_S,
@@ -40,7 +46,7 @@ def _profile(**overrides):
     return SleepProfile.create(**params)
 
 
-def _make_env(profile=None, last_seen=None):
+def _make_env(profile=None, last_seen=None, options=None):
     """Return (hass, entry, coordinator, manager) with a fake runtime."""
     profile = profile or _profile()
     coordinator = MagicMock()
@@ -62,6 +68,7 @@ def _make_env(profile=None, last_seen=None):
     entry.unique_id = ADDRESS
     entry.runtime_data = runtime
     entry.data = {}  # no encryption key
+    entry.options = options if options is not None else {}
     hass = MagicMock()
 
     async def _executor_job(fn, *args):
@@ -248,6 +255,47 @@ async def test_fresh_device_failure_no_probe_kwargs():
     assert "timeout" not in kwargs
     assert "max_attempts" not in kwargs
     manager.notify_device_seen.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pipe_kwargs_default():
+    """No options set: library sliding-window defaults are threaded through."""
+    hass, entry, _, manager = _make_env(
+        profile=_profile(sleep_mode="off"), last_seen=None
+    )
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    od = _device_ctx_factory(device=device)
+    p1, p2, p3, p4, p5 = _patches(od)
+    with p1, p2, p3, p4, p5:
+        receipt = await _send(hass, entry)
+
+    assert receipt.status == "delivered"
+    kwargs = od.call_args.kwargs
+    assert kwargs["blocks_per_ack"] == DEFAULT_BLOCKS_PER_ACK
+    assert kwargs["max_queue_size"] == DEFAULT_MAX_QUEUE_SIZE
+    manager.submit_upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pipe_kwargs_custom():
+    """Configured options reach the OpenDisplayDevice constructor."""
+    hass, entry, _, _ = _make_env(
+        profile=_profile(sleep_mode="off"),
+        last_seen=None,
+        options={CONF_BLOCKS_PER_ACK: 4, CONF_MAX_QUEUE_SIZE: 1},
+    )
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    od = _device_ctx_factory(device=device)
+    p1, p2, p3, p4, p5 = _patches(od)
+    with p1, p2, p3, p4, p5:
+        receipt = await _send(hass, entry)
+
+    assert receipt.status == "delivered"
+    kwargs = od.call_args.kwargs
+    assert kwargs["blocks_per_ack"] == 4
+    assert kwargs["max_queue_size"] == 1
 
 
 if __name__ == "__main__":

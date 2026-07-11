@@ -61,7 +61,15 @@ from homeassistant.helpers.selector import MediaSelector, MediaSelectorConfig
 if TYPE_CHECKING:
     from . import OpenDisplayConfigEntry
 
-from .const import CONF_ENCRYPTION_KEY, DOMAIN, SIGNAL_IMAGE_UPDATED
+from .const import (
+    CONF_BLOCKS_PER_ACK,
+    CONF_ENCRYPTION_KEY,
+    CONF_MAX_QUEUE_SIZE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
+    DOMAIN,
+    SIGNAL_IMAGE_UPDATED,
+)
 from .delivery import DeliveryReceipt
 
 ATTR_IMAGE = "image"
@@ -367,6 +375,14 @@ async def _async_connect_and_run(
         device_kwargs["timeout"] = connect_timeout
     if max_attempts is not None:
         device_kwargs["max_attempts"] = max_attempts
+    # Sliding-window pipe-transfer tuning (max_queue_size == 1 disables it).
+    options = entry.options
+    device_kwargs["blocks_per_ack"] = options.get(
+        CONF_BLOCKS_PER_ACK, DEFAULT_BLOCKS_PER_ACK
+    )
+    device_kwargs["max_queue_size"] = options.get(
+        CONF_MAX_QUEUE_SIZE, DEFAULT_MAX_QUEUE_SIZE
+    )
 
     try:
         # Serialize all BLE access to this tag: the device has a single BLE link

@@ -39,11 +39,15 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_BLOCKS_PER_ACK,
     CONF_ENCRYPTION_KEY,
+    CONF_MAX_QUEUE_SIZE,
     CONF_MISSED_CYCLES,
     CONF_PROBE_BEFORE_QUEUE,
     CONF_QUEUE_TIMEOUT_HOURS,
     CONF_SLEEP_MODE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
     DEFAULT_MISSED_CYCLES,
     DEFAULT_PROBE_BEFORE_QUEUE,
     DEFAULT_QUEUE_TIMEOUT_HOURS,
@@ -95,6 +99,26 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_PROBE_BEFORE_QUEUE, default=DEFAULT_PROBE_BEFORE_QUEUE
             ): BooleanSelector(),
+            vol.Required(
+                CONF_BLOCKS_PER_ACK, default=DEFAULT_BLOCKS_PER_ACK
+            ): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=32, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Coerce(int),
+            ),
+            vol.Required(
+                CONF_MAX_QUEUE_SIZE, default=DEFAULT_MAX_QUEUE_SIZE
+            ): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=32, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Coerce(int),
+            ),
         }
     )
 
