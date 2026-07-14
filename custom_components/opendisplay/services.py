@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 import contextlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 import functools
 import io
@@ -16,6 +16,8 @@ from odl_renderer import generate_image
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
+    BLEConnectionError,
+    BLETimeoutError,
     ColorScheme,
     DitherMode,
     FitMode,
@@ -41,7 +43,13 @@ from homeassistant.components.http.auth import async_sign_path
 from homeassistant.components.media_source import async_resolve_media
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_DEVICE_ID
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -53,7 +61,16 @@ from homeassistant.helpers.selector import MediaSelector, MediaSelectorConfig
 if TYPE_CHECKING:
     from . import OpenDisplayConfigEntry
 
-from .const import CONF_ENCRYPTION_KEY, DOMAIN, SIGNAL_IMAGE_UPDATED
+from .const import (
+    CONF_BLOCKS_PER_ACK,
+    CONF_ENCRYPTION_KEY,
+    CONF_MAX_QUEUE_SIZE,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
+    DOMAIN,
+    SIGNAL_IMAGE_UPDATED,
+)
+from .delivery import DELIVERY_DEADLINE_S, DeliveryReceipt
 
 ATTR_IMAGE = "image"
 ATTR_ROTATION = "rotation"
@@ -280,17 +297,52 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
     return await hass.async_add_executor_job(_load_image_from_bytes, data)
 
 
+class _DeviceUnavailable(Exception):
+    """Signals the tag was dark or dropped the link during a live send.
+
+    Raised only when ``reraise_ble=True`` so the caller can queue the content
+    for the next wake instead of surfacing an ``upload_error``.
+    """
+
+
+# Probe budget for a probably-asleep tag: one connect attempt, short timeout.
+# 5 s is >2x the observed 1-3 s connect-during-window latency (plus proxy
+# slack), so a genuinely awake tag connects comfortably, while a dark ESP32
+# (radio fully off in timer deep sleep) costs at most ~5 s before queuing —
+# vs the ~40 s default budget (4 attempts x 10 s). Deliberately below both the
+# 10 s wake window and the 15 s freshness horizon (wake_window_s +
+# FRESHNESS_SLACK_S), so a probe triggered by a just-missed advert still lands
+# inside the window it is betting on.
+PROBE_CONNECT_TIMEOUT_S = 5.0
+PROBE_MAX_ATTEMPTS = 1
+
+
 async def _async_connect_and_run(
     hass: HomeAssistant,
     entry: "OpenDisplayConfigEntry",
     action: Callable[[OpenDisplayDevice], Awaitable[None]],
     use_measured_palettes: bool = False,
+    reraise_ble: bool = False,
+    *,
+    connect_timeout: float | None = None,
+    max_attempts: int | None = None,
 ) -> None:
-    """Resolve BLE device, open a connection, run action, handle auth errors."""
+    """Resolve BLE device, open a connection, run action, handle auth errors.
+
+    When ``reraise_ble`` is set, a missing connectable device or a BLE
+    connect/timeout failure raises ``_DeviceUnavailable`` instead of a
+    translated ``device_not_found``/``upload_error``, so the caller can defer
+    the work to the delivery queue. ``connect_timeout``/``max_attempts``
+    override the library's connect budget (10 s x 4 attempts) — used by the
+    probe path to bound a likely-doomed attempt; ``None`` keeps the library
+    defaults. All other behavior is unchanged.
+    """
     address = entry.unique_id
     assert address is not None
     ble_device = async_ble_device_from_address(hass, address, connectable=True)
     if ble_device is None:
+        if reraise_ble:
+            raise _DeviceUnavailable
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="device_not_found",
@@ -306,6 +358,10 @@ async def _async_connect_and_run(
 
     raw_key = entry.data.get(CONF_ENCRYPTION_KEY)
     if raw_key is not None and len(raw_key) != 32:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (bad length); reauthentication required",
+            address,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"
@@ -313,10 +369,28 @@ async def _async_connect_and_run(
     try:
         encryption_key = bytes.fromhex(raw_key) if raw_key is not None else None
     except ValueError as err:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (not hex); reauthentication required",
+            address,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"
         ) from err
+
+    device_kwargs: dict[str, Any] = {}
+    if connect_timeout is not None:
+        device_kwargs["timeout"] = connect_timeout
+    if max_attempts is not None:
+        device_kwargs["max_attempts"] = max_attempts
+    # Sliding-window pipe-transfer tuning (max_queue_size == 1 disables it).
+    options = entry.options
+    device_kwargs["blocks_per_ack"] = options.get(
+        CONF_BLOCKS_PER_ACK, DEFAULT_BLOCKS_PER_ACK
+    )
+    device_kwargs["max_queue_size"] = options.get(
+        CONF_MAX_QUEUE_SIZE, DEFAULT_MAX_QUEUE_SIZE
+    )
 
     try:
         # Serialize all BLE access to this tag: the device has a single BLE link
@@ -325,18 +399,48 @@ async def _async_connect_and_run(
         # same MAC) fail with a confusing upload_error. The lock is held for the
         # full connection lifetime and released on error. Held per config entry,
         # i.e. per MAC, so different tags are not serialized against each other.
-        async with entry.runtime_data.ble_lock, OpenDisplayDevice(
-            mac_address=address,
-            ble_device=ble_device,
-            config=entry.runtime_data.device_config,
-            use_measured_palettes=use_measured_palettes,
-            encryption_key=encryption_key,
-        ) as device:
+        # Same wall-clock ceiling as the queued-delivery drain: without it a
+        # wedged transfer would hold ble_lock forever and block every later
+        # operation on this MAC (the library's per-read timeouts bound normal
+        # failures, but not adversarial/buggy-firmware frame streams).
+        async with (
+            asyncio.timeout(DELIVERY_DEADLINE_S),
+            entry.runtime_data.ble_lock,
+            OpenDisplayDevice(
+                mac_address=address,
+                ble_device=ble_device,
+                config=entry.runtime_data.device_config,
+                use_measured_palettes=use_measured_palettes,
+                encryption_key=encryption_key,
+                **device_kwargs,
+            ) as device,
+        ):
             await action(device)
+    except TimeoutError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="upload_error",
+            translation_placeholders={
+                "error": f"operation exceeded {DELIVERY_DEADLINE_S:.0f}s deadline"
+            },
+        ) from err
     except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+        _LOGGER.warning(
+            "%s: device rejected the encryption key (%s); reauthentication required",
+            address,
+            err,
+        )
         entry.async_start_reauth(hass)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="authentication_error"
+        ) from err
+    except (BLEConnectionError, BLETimeoutError) as err:
+        if reraise_ble:
+            raise _DeviceUnavailable from err
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="upload_error",
+            translation_placeholders={"error": str(err)},
         ) from err
     except OpenDisplayError as err:
         raise HomeAssistantError(
@@ -351,14 +455,20 @@ async def _async_send_image(
     entry: "OpenDisplayConfigEntry",
     img: PILImage.Image,
     *,
+    device_id: str | None = None,
     dither_mode: DitherMode,
     refresh_mode: RefreshMode,
     fit: FitMode = FitMode.CONTAIN,
     tone: float | str = "auto",
     rotate: Rotation = Rotation.ROTATE_0,
     use_measured_palettes: bool = False,
-) -> None:
-    """Upload a PIL image to the device."""
+) -> DeliveryReceipt:
+    """Upload a PIL image, delivering live or queuing it for the next wake.
+
+    Returns a receipt describing whether the frame was delivered immediately or
+    queued (for a sleeping device). Non-sleepy devices always deliver live and
+    keep the original strict-failure behavior.
+    """
     # Split the upload into its heavy CPU half and its BLE-I/O half. The CPU
     # work (rotate + fit + dither + encode + zlib on a full frame) is offloaded
     # to an executor thread so it never blocks the event loop; only the BLE
@@ -399,20 +509,98 @@ async def _async_send_image(
         runtime.partial_state = PartialState()
     state = runtime.partial_state
 
-    async def _upload(device: OpenDisplayDevice) -> None:
-        await device.upload_prepared_image(prepared, refresh_mode=refresh_mode, state=state)
-
-    await _async_connect_and_run(
-        hass, entry, _upload, use_measured_palettes=use_measured_palettes
-    )
+    # The preview JPEG is built up-front so a queued frame can be shown on the
+    # image entity immediately (D6), not only after a successful delivery.
     jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
+
+    profile = runtime.sleep_profile
+    manager = runtime.delivery
+    sleepy = manager is not None and profile.is_sleepy
+
+    def _queue() -> DeliveryReceipt:
+        assert manager is not None
+        return manager.submit_upload(
+            prepared=prepared,
+            refresh_mode=refresh_mode,
+            partial_state=state,
+            use_measured_palettes=use_measured_palettes,
+            preview_jpeg=jpeg,
+            device_id=device_id,
+        )
+
+    async def _upload(device: OpenDisplayDevice) -> None:
+        await device.upload_prepared_image(
+            prepared, refresh_mode=refresh_mode, state=state
+        )
+
+    # Freshness gate: a probably-asleep tag will not usually answer a live
+    # connect. Instead of queuing blind, spend one short connect attempt (the
+    # "probe") in case the tag is actually awake: its wake adverts may have
+    # been missed by the scanner, and Silabs tags advertise continuously even
+    # when their power config looks sleepy. A dark ESP32 costs at most
+    # ~PROBE_CONNECT_TIMEOUT_S before falling back to the queue. HA drops the
+    # connectable BLEDevice ~3-5 min after the last advert, so a long-dark or
+    # never-seen tag short-circuits to the queue at near-zero cost (no
+    # BLEDevice -> _DeviceUnavailable without any radio traffic).
+    probing = False
+    connect_kwargs: dict[str, Any] = {}
+    if sleepy:
+        last_seen = (
+            runtime.coordinator.data.last_seen if runtime.coordinator.data else None
+        )
+        if profile.probably_asleep(last_seen):
+            if not profile.probe_before_queue:
+                return _queue()
+            probing = True
+            connect_kwargs = {
+                "connect_timeout": PROBE_CONNECT_TIMEOUT_S,
+                "max_attempts": PROBE_MAX_ATTEMPTS,
+            }
+
+    try:
+        await _async_connect_and_run(
+            hass,
+            entry,
+            _upload,
+            use_measured_palettes=use_measured_palettes,
+            reraise_ble=sleepy,
+            **connect_kwargs,
+        )
+    except _DeviceUnavailable:
+        # The device was dark, dropped, or refused the link; defer.
+        receipt = _queue()
+        if probing:
+            # Race: a wake advert arriving DURING the failed probe found no
+            # pending work (nothing queued yet), so no drain started. If the
+            # tag now looks fresh, kick a drain instead of waiting out a full
+            # sleep cycle. notify_device_seen is a no-op while one is running.
+            last_seen = (
+                runtime.coordinator.data.last_seen if runtime.coordinator.data else None
+            )
+            if not profile.probably_asleep(last_seen):
+                assert manager is not None
+                manager.notify_device_seen("post-probe")
+        return receipt
+
     async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
+    return DeliveryReceipt(status="delivered", expires_at=None)
 
 
-async def _async_upload_image(call: ServiceCall) -> None:
+def _receipt_response(receipt: DeliveryReceipt) -> ServiceResponse:
+    """Build the service response payload from a delivery receipt."""
+    expires_at = (
+        datetime.fromtimestamp(receipt.expires_at, tz=timezone.utc).isoformat()
+        if receipt.expires_at is not None
+        else None
+    )
+    return {"status": receipt.status, "expires_at": expires_at}
+
+
+async def _async_upload_image(call: ServiceCall) -> ServiceResponse:
     """Handle the upload_image service call."""
     entry = _get_entry_for_device(call)
 
+    device_id: str = call.data[ATTR_DEVICE_ID]
     image_data: dict[str, Any] | str = call.data[ATTR_IMAGE]
     rotation: Rotation = call.data[ATTR_ROTATION]
     dither_mode: DitherMode = call.data[ATTR_DITHER_MODE]
@@ -463,10 +651,11 @@ async def _async_upload_image(call: ServiceCall) -> None:
             else:
                 pil_image = await _async_download_image(call.hass, media.url)
 
-        await _async_send_image(
+        receipt = await _async_send_image(
             call.hass,
             entry,
             pil_image,
+            device_id=device_id,
             dither_mode=dither_mode,
             refresh_mode=refresh_mode,
             fit=fit_mode,
@@ -474,8 +663,11 @@ async def _async_upload_image(call: ServiceCall) -> None:
             rotate=rotation,
             use_measured_palettes=use_measured_palettes,
         )
+        return _receipt_response(receipt)
     except asyncio.CancelledError:
-        return
+        # Superseded by a newer upload (latest-wins); report it honestly rather
+        # than surfacing the cancellation.
+        return {"status": "superseded", "expires_at": None}
     finally:
         if entry.runtime_data.upload_task is current:
             entry.runtime_data.upload_task = None
@@ -577,7 +769,7 @@ async def _get_device_ids_from_area(hass: HomeAssistant, area_id: str) -> list[s
     ]
 
 
-async def _async_drawcustom(call: ServiceCall) -> None:
+async def _async_drawcustom(call: ServiceCall) -> ServiceResponse:
     """Handle the drawcustom service call."""
     hass = call.hass
 
@@ -596,17 +788,41 @@ async def _async_drawcustom(call: ServiceCall) -> None:
         )
 
     errors: list[str] = []
+    receipts: list[DeliveryReceipt] = []
+    results: dict[str, Any] = {}
     for device_id in unique_ids:
         try:
-            await _drawcustom_for_device(hass, device_id, call)
+            receipt = await _drawcustom_for_device(hass, device_id, call)
         except (HomeAssistantError, ServiceValidationError) as err:
             errors.append(f"{device_id}: {err}")
+        else:
+            receipts.append(receipt)
+            results[device_id] = _receipt_response(receipt)
     if errors:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="multiple_errors",
             translation_placeholders={"errors": "\n".join(errors)},
         )
+
+    # Summarize across all targets: any queued device makes the batch "queued"
+    # (with the soonest expiry); otherwise delivered (or dry_run).
+    queued = [r for r in receipts if r.status == "queued" and r.expires_at is not None]
+    if queued:
+        status = "queued"
+        expires_epoch: float | None = min(r.expires_at for r in queued)  # type: ignore[type-var]
+    elif receipts and all(r.status == "dry_run" for r in receipts):
+        status = "dry_run"
+        expires_epoch = None
+    else:
+        status = "delivered"
+        expires_epoch = None
+    expires_at = (
+        datetime.fromtimestamp(expires_epoch, tz=timezone.utc).isoformat()
+        if expires_epoch is not None
+        else None
+    )
+    return {"status": status, "expires_at": expires_at, "results": results}
 
 
 def _font_search_dirs(hass: HomeAssistant) -> list[str]:
@@ -621,7 +837,7 @@ def _font_search_dirs(hass: HomeAssistant) -> list[str]:
 
 async def _drawcustom_for_device(
     hass: HomeAssistant, device_id: str, call: ServiceCall
-) -> None:
+) -> DeliveryReceipt:
     entry = _get_entry_for_device_id(hass, device_id)
     display = entry.runtime_data.device_config.displays[0]
     cs = display.color_scheme_enum
@@ -656,7 +872,7 @@ async def _drawcustom_for_device(
         _LOGGER.info("Drawcustom dry run for device %s", device_id)
         jpeg = await hass.async_add_executor_job(_pil_to_jpeg, img)
         async_dispatcher_send(hass, f"{SIGNAL_IMAGE_UPDATED}_{entry.unique_id}", jpeg)
-        return
+        return DeliveryReceipt(status="dry_run", expires_at=None)
 
     dither_mode: DitherMode = call.data["dither"]
     refresh_mode: RefreshMode = call.data["refresh_type"]
@@ -666,16 +882,36 @@ async def _drawcustom_for_device(
     )
     use_measured_palettes: bool = call.data[ATTR_USE_MEASURED_PALETTES]
 
-    await _async_send_image(
+    return await _async_send_image(
         hass,
         entry,
         img,
+        device_id=device_id,
         dither_mode=dither_mode,
         refresh_mode=refresh_mode,
         tone=tone_compression,
         rotate=Rotation(rotate),
         use_measured_palettes=use_measured_palettes,
     )
+
+
+def _raise_if_sleeping(entry: "OpenDisplayConfigEntry", device_id: str) -> None:
+    """Fail fast for an immediate-only action when the tag is provably asleep.
+
+    LED/buzzer notifications that fire hours late are worse than an error, so a
+    sleeping device rejects them immediately rather than queuing.
+    """
+    runtime = entry.runtime_data
+    profile = runtime.sleep_profile
+    if not profile.is_sleepy:
+        return
+    last_seen = runtime.coordinator.data.last_seen if runtime.coordinator.data else None
+    if profile.probably_asleep(last_seen):
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="device_sleeping",
+            translation_placeholders={"device_id": device_id},
+        )
 
 
 async def _async_activate_led(call: ServiceCall) -> None:
@@ -687,6 +923,7 @@ async def _async_activate_led(call: ServiceCall) -> None:
             translation_key="no_leds",
             translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
         )
+    _raise_if_sleeping(entry, call.data[ATTR_DEVICE_ID])
     repeats: int = call.data["repeats"]
     flash_config = LedFlashConfig(
         mode=1,
@@ -728,6 +965,7 @@ async def _async_activate_buzzer(call: ServiceCall) -> None:
             translation_key="no_buzzers",
             translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
         )
+    _raise_if_sleeping(entry, call.data[ATTR_DEVICE_ID])
     buzz_config = BuzzerActivateConfig.single_tone(
         frequency_hz=call.data["frequency_hz"],
         duration_ms=call.data["duration_ms"],
@@ -749,7 +987,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
         "upload_image",
         _async_upload_image,
         schema=SCHEMA_UPLOAD_IMAGE,
+        supports_response=SupportsResponse.OPTIONAL,
     )
-    hass.services.async_register(DOMAIN, "drawcustom", _async_drawcustom, schema=SCHEMA_DRAWCUSTOM)
+    hass.services.async_register(
+        DOMAIN,
+        "drawcustom",
+        _async_drawcustom,
+        schema=SCHEMA_DRAWCUSTOM,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
     hass.services.async_register(DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED)
     hass.services.async_register(DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER)

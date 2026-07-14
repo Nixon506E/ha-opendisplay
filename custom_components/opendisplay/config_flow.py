@@ -1,5 +1,6 @@
 """Config flow for OpenDisplay integration."""
 
+import asyncio
 from collections.abc import Mapping
 import logging
 from typing import TYPE_CHECKING, Any
@@ -19,12 +20,109 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .const import CONF_ENCRYPTION_KEY, DOMAIN
+from .const import (
+    CONF_BLOCKS_PER_ACK,
+    CONF_ENCRYPTION_KEY,
+    CONF_MAX_QUEUE_SIZE,
+    CONF_MISSED_CYCLES,
+    CONF_PROBE_BEFORE_QUEUE,
+    CONF_QUEUE_TIMEOUT_HOURS,
+    CONF_SLEEP_MODE,
+    CONNECT_PROBE_DEADLINE_S,
+    DEFAULT_BLOCKS_PER_ACK,
+    DEFAULT_MAX_QUEUE_SIZE,
+    DEFAULT_MISSED_CYCLES,
+    DEFAULT_PROBE_BEFORE_QUEUE,
+    DEFAULT_QUEUE_TIMEOUT_HOURS,
+    DEFAULT_SLEEP_MODE,
+    DOMAIN,
+    SLEEP_MODE_AUTO,
+    SLEEP_MODE_OFF,
+    SLEEP_MODE_ON,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _options_schema() -> vol.Schema:
+    """Return the options-flow schema."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_SLEEP_MODE, default=DEFAULT_SLEEP_MODE
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[SLEEP_MODE_AUTO, SLEEP_MODE_ON, SLEEP_MODE_OFF],
+                    translation_key="sleep_mode",
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(CONF_MISSED_CYCLES, default=DEFAULT_MISSED_CYCLES): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=100, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Coerce(int),
+            ),
+            vol.Required(
+                CONF_QUEUE_TIMEOUT_HOURS, default=DEFAULT_QUEUE_TIMEOUT_HOURS
+            ): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1,
+                        max=168,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                        unit_of_measurement="h",
+                    )
+                ),
+                vol.Coerce(int),
+            ),
+            vol.Required(
+                CONF_PROBE_BEFORE_QUEUE, default=DEFAULT_PROBE_BEFORE_QUEUE
+            ): BooleanSelector(),
+            vol.Required(
+                CONF_BLOCKS_PER_ACK, default=DEFAULT_BLOCKS_PER_ACK
+            ): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=32, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Coerce(int),
+            ),
+            vol.Required(
+                CONF_MAX_QUEUE_SIZE, default=DEFAULT_MAX_QUEUE_SIZE
+            ): vol.All(
+                NumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=32, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Coerce(int),
+            ),
+        }
+    )
 
 
 _ENCRYPTION_KEY_VALIDATOR = vol.All(str.strip, str.lower, vol.Match(r"^[0-9a-f]{32}$"))
@@ -38,6 +136,12 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow handler."""
+        return OpenDisplayOptionsFlow()
+
     async def _async_test_connection(
         self, address: str, encryption_key: bytes | None = None
     ) -> None:
@@ -46,10 +150,22 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         if ble_device is None:
             raise BLEConnectionError(f"Could not find connectable device for {address}")
 
-        async with OpenDisplayDevice(
-            mac_address=address, ble_device=ble_device, encryption_key=encryption_key
-        ) as device:
-            await device.read_firmware_version()
+        # Bound the whole probe (connect + auto-interrogate + firmware read) so a
+        # wedged BLE link can't freeze the config dialog. A breach is surfaced as
+        # BLEConnectionError, which the callers' existing OpenDisplayError handling
+        # maps to "cannot_connect"; AuthenticationRequiredError still propagates.
+        try:
+            async with asyncio.timeout(CONNECT_PROBE_DEADLINE_S):
+                async with OpenDisplayDevice(
+                    mac_address=address,
+                    ble_device=ble_device,
+                    encryption_key=encryption_key,
+                ) as device:
+                    await device.read_firmware_version()
+        except TimeoutError as err:
+            raise BLEConnectionError(
+                f"Connection probe exceeded {CONNECT_PROBE_DEADLINE_S:.0f}s"
+            ) from err
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -72,6 +188,10 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await self._async_test_connection(self._discovery_info.address)
             except AuthenticationRequiredError:
+                _LOGGER.debug(
+                    "%s: device requires an encryption key; prompting for one",
+                    self._discovery_info.address,
+                )
                 return await self.async_step_encryption_key()
             except OpenDisplayError:
                 errors["base"] = "cannot_connect"
@@ -104,6 +224,9 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await self._async_test_connection(address)
             except AuthenticationRequiredError:
+                _LOGGER.debug(
+                    "%s: device requires an encryption key; prompting for one", address
+                )
                 self.context["title_placeholders"] = {
                     "name": self._discovered_devices[address].name
                 }
@@ -154,7 +277,8 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         """Test connection, populate errors, and return True on success."""
         try:
             await self._async_test_connection(address, encryption_key)
-        except (AuthenticationFailedError, AuthenticationRequiredError):
+        except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+            _LOGGER.debug("%s: encryption key rejected (%s)", address, err)
             errors[CONF_ENCRYPTION_KEY] = "invalid_auth"
         except OpenDisplayError:
             errors["base"] = "cannot_connect"
@@ -240,4 +364,28 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             description_placeholders={"name": reauth_entry.title},
             errors=errors,
+        )
+
+
+class OpenDisplayOptionsFlow(OptionsFlowWithReload):
+    """Handle deep-sleep options for an OpenDisplay device.
+
+    Extends ``OptionsFlowWithReload`` so saving changed options automatically
+    reloads the entry, re-resolving the sleep profile and re-applying the
+    availability interval. No manual update listener is registered (mixing the
+    two is disallowed).
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the deep-sleep options."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                _options_schema(), self.config_entry.options
+            ),
         )
