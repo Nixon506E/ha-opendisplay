@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+import homeassistant.util.dt as dt_util
 
 from . import OpenDisplayConfigEntry
 from .const import SIGNAL_IMAGE_UPDATED, SIGNAL_PENDING_STATE
@@ -101,7 +102,7 @@ class OpenDisplayImageEntity(ImageEntity):
     def _handle_image_update(self, image_bytes: bytes) -> None:
         """Handle a new image from a completed or queued upload."""
         self._image_bytes = image_bytes
-        self._attr_image_last_updated = datetime.now(tz=timezone.utc)
+        self._attr_image_last_updated = dt_util.utcnow()
         self._store_content()
         self.async_write_ha_state()
 
