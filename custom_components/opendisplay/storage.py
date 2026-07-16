@@ -17,6 +17,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN
 
 STORAGE_VERSION = 1
+CONTENT_SAVE_DELAY = 1.0
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,9 @@ class OpenDisplayContentStore:
             self.content = replace(
                 self.content,
                 pending=False,
+                queued_at=None,
                 expires_at=None,
+                attempts=0,
                 last_error="expired",
             )
             await self._store.async_save(self._serialize())
@@ -97,7 +100,7 @@ class OpenDisplayContentStore:
         last_error: str | None,
     ) -> None:
         """Persist the image entity's current content state."""
-        self.content = StoredContent(
+        content = StoredContent(
             image_jpeg=image_jpeg,
             image_last_updated=image_last_updated,
             pending=pending,
@@ -106,11 +109,16 @@ class OpenDisplayContentStore:
             attempts=attempts,
             last_error=last_error,
         )
+        if content == self.content:
+            return
+        self.content = content
         self._schedule_save()
 
     @callback
     def store_pending_upload(self, upload: StoredPendingUpload) -> None:
         """Persist a queued upload."""
+        if upload == self.pending_upload:
+            return
         self.pending_upload = upload
         self._schedule_save()
 
@@ -121,6 +129,7 @@ class OpenDisplayContentStore:
         self.content = replace(
             self.content,
             pending=False,
+            queued_at=None,
             expires_at=None,
             attempts=0,
             last_error=last_error,
@@ -138,7 +147,7 @@ class OpenDisplayContentStore:
         last_error: str | None,
     ) -> None:
         """Persist queue attributes without changing the stored image bytes."""
-        self.content = replace(
+        content = replace(
             self.content,
             pending=pending,
             queued_at=queued_at,
@@ -146,12 +155,15 @@ class OpenDisplayContentStore:
             attempts=attempts,
             last_error=last_error,
         )
+        if content == self.content:
+            return
+        self.content = content
         self._schedule_save()
 
     @callback
     def _schedule_save(self) -> None:
         """Schedule a storage write for the current state."""
-        self._store.async_delay_save(self._serialize, 0)
+        self._store.async_delay_save(self._serialize, CONTENT_SAVE_DELAY)
 
     def _serialize(self) -> dict[str, Any]:
         """Serialize the current store state."""
