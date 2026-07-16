@@ -280,6 +280,30 @@ async def test_oversized_content_rejected():
 
 
 @pytest.mark.asyncio
+async def test_content_at_exact_byte_limit_accepted():
+    entry = _make_entry()
+    device = MagicMock()
+    device.write_nfc_text = AsyncMock()
+    p1, p2 = _patches(entry, device)
+    content = "a" * NFC_MAX_PAYLOAD
+    with p1, p2:
+        await _async_write_nfc(_call(record_type="text", content=content))
+    device.write_nfc_text.assert_awaited_once_with(content)
+
+
+@pytest.mark.asyncio
+async def test_multibyte_utf8_content_measured_in_bytes_not_chars():
+    entry = _make_entry()
+    device = MagicMock()
+    p1, p2 = _patches(entry, device)
+    # 200 four-byte-UTF-8 emoji: 200 chars but 800 bytes, over the 512 limit.
+    content = "\U0001f600" * 200
+    with p1, p2, pytest.raises(ServiceValidationError) as exc_info:
+        await _async_write_nfc(_call(record_type="text", content=content))
+    assert exc_info.value.translation_key == "nfc_content_too_long"
+
+
+@pytest.mark.asyncio
 async def test_mime_header_pushes_body_over_limit_rejected():
     entry = _make_entry()
     device = MagicMock()

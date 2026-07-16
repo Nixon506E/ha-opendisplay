@@ -1051,11 +1051,6 @@ async def _async_write_nfc(call: ServiceCall) -> None:
 
     if record_type == "ha_tag":
         tag_id = content.strip()
-        if not tag_id:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="nfc_content_empty",
-            )
         content = HA_TAG_URL_PREFIX + quote(tag_id, safe="")
         record_type = "url"
 
