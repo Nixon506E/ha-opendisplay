@@ -72,8 +72,6 @@ class OpenDisplayImageEntity(ImageEntity):
         return {
             "pending": self._pending,
             "queued_at": _to_iso(self._queued_at),
-            "expires_at": _to_iso(self._expires_at),
-            "attempts": self._attempts,
             "last_error": self._last_error,
         }
 
