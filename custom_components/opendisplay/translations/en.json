@@ -141,6 +141,9 @@
         "invalid_device_id": {
             "message": "Device `{device_id}` is not a valid OpenDisplay device."
         },
+        "invalid_melody": {
+            "message": "Invalid melody: {error}"
+        },
         "media_download_error": {
             "message": "Failed to download media: {error}"
         },
@@ -345,7 +348,7 @@
         },
         "activate_buzzer": {
             "name": "Activate buzzer",
-            "description": "Triggers a buzzer tone on an OpenDisplay device.",
+            "description": "Triggers a buzzer tone on an OpenDisplay device. For multi-note melodies, see Play buzzer melody.",
             "fields": {
                 "device_id": {
                     "name": "Device",
@@ -388,6 +391,40 @@
                 "mime_type": {
                     "name": "MIME type",
                     "description": "The MIME type of the content. Only applies to MIME records; defaults to text/vcard."
+                }
+            }
+        },
+        "play_melody": {
+            "name": "Play buzzer melody",
+            "description": "Plays a multi-note melody on an OpenDisplay device's buzzer.",
+            "fields": {
+                "device_id": {
+                    "name": "Device",
+                    "description": "The OpenDisplay device."
+                },
+                "instance": {
+                    "name": "Buzzer instance",
+                    "description": "Buzzer instance index (0-based)."
+                },
+                "notes": {
+                    "name": "Notes",
+                    "description": "Compact melody: whitespace/comma-separated tokens, each `pitch[duration]`. Pitch is a note name (`A4`, `C#5`, flats and quarter-tones like `A4+` allowed), `R` for a rest, or a raw index 0-255. Duration is optional: `:200` for absolute milliseconds, or `/4` (quarter), `/4.` (dotted), `/8t` (triplet) for tempo-relative note fractions; omitted uses the default length or default note duration."
+                },
+                "tempo": {
+                    "name": "Tempo",
+                    "description": "Beats per minute; only affects `/fraction` durations (40-400)."
+                },
+                "repeats": {
+                    "name": "Repeats",
+                    "description": "Number of times to repeat the whole melody (1-255)."
+                },
+                "default_note_ms": {
+                    "name": "Default note duration",
+                    "description": "Duration in milliseconds for notes with no duration marker, when no default length is set (5-1275)."
+                },
+                "default_length": {
+                    "name": "Default length",
+                    "description": "Note fraction (1/2/4/8/16/32) used at the current tempo for notes with no duration marker; overrides the default note duration when set."
                 }
             }
         },

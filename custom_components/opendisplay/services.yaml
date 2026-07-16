@@ -277,6 +277,64 @@ write_nfc:
       selector:
         text:
 
+play_melody:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+    notes:
+      required: true
+      example: "C5 C5 G5 G5 A5 A5 G5/2"
+      selector:
+        text:
+    tempo:
+      required: false
+      default: 120
+      selector:
+        number:
+          min: 40
+          max: 400
+          mode: box
+          unit_of_measurement: BPM
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    default_note_ms:
+      required: false
+      default: 200
+      selector:
+        number:
+          min: 5
+          max: 1275
+          mode: box
+          unit_of_measurement: ms
+    default_length:
+      required: false
+      selector:
+        select:
+          options:
+            - "1"
+            - "2"
+            - "4"
+            - "8"
+            - "16"
+            - "32"
+
 drawcustom:
   name: Draw Custom Image
   description: Draws a custom image on one or more OpenDisplay devices
