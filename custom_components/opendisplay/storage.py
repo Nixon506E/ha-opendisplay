@@ -17,7 +17,13 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN
 
 STORAGE_VERSION = 1
-CONTENT_SAVE_DELAY = 1.0
+# Always-on devices usually drain a queued image quickly; delaying the save avoids
+# persisting transient queue state that is cleared almost immediately. Sleeping
+# devices keep the queue long enough that the delayed write makes it durable.
+CONTENT_IMAGE_SAVE_DELAY = 60.0
+# Clearing an already-persisted queue slot is cheap and should land promptly so a
+# crash does not resurrect already-delivered content on the next startup.
+CONTENT_EMPTY_SAVE_DELAY = 1.0
 
 
 @dataclass(frozen=True)
@@ -134,7 +140,7 @@ class OpenDisplayContentStore:
             attempts=0,
             last_error=last_error,
         )
-        self._schedule_save()
+        self._schedule_save(CONTENT_EMPTY_SAVE_DELAY)
 
     @callback
     def update_pending_snapshot(
@@ -161,9 +167,9 @@ class OpenDisplayContentStore:
         self._schedule_save()
 
     @callback
-    def _schedule_save(self) -> None:
+    def _schedule_save(self, delay: float = CONTENT_IMAGE_SAVE_DELAY) -> None:
         """Schedule a storage write for the current state."""
-        self._store.async_delay_save(self._serialize, CONTENT_SAVE_DELAY)
+        self._store.async_delay_save(self._serialize, delay)
 
     def _serialize(self) -> dict[str, Any]:
         """Serialize the current store state."""
