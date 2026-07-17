@@ -26,6 +26,9 @@
     },
     "activate_buzzer": {
       "service": "mdi:bell-ring"
+    },
+    "write_nfc": {
+      "service": "mdi:nfc-variant"
     }
   }
 }

@@ -248,6 +248,35 @@ activate_buzzer:
           max: 255
           mode: box
 
+write_nfc:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    record_type:
+      required: false
+      default: "url"
+      selector:
+        select:
+          translation_key: nfc_record_type
+          options:
+            - "url"
+            - "text"
+            - "mime"
+            - "ha_tag"
+    content:
+      required: true
+      selector:
+        text:
+          multiline: true
+    mime_type:
+      required: false
+      example: text/vcard
+      selector:
+        text:
+
 drawcustom:
   name: Draw Custom Image
   description: Draws a custom image on one or more OpenDisplay devices

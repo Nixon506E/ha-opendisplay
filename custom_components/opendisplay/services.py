@@ -10,6 +10,7 @@ import io
 import logging
 import os
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import aiohttp
 from odl_renderer import generate_image
@@ -24,6 +25,9 @@ from opendisplay import (
     LedFlashConfig,
     LedFlashStep,
     BuzzerActivateConfig,
+    NfcNotSupportedError,
+    NfcRecordType,
+    NfcWriteError,
     OpenDisplayDevice,
     OpenDisplayError,
     PartialState,
@@ -79,6 +83,24 @@ ATTR_REFRESH_MODE = "refresh_mode"
 ATTR_FIT_MODE = "fit_mode"
 ATTR_TONE_COMPRESSION = "tone_compression"
 ATTR_USE_MEASURED_PALETTES = "measured_palette"
+ATTR_RECORD_TYPE = "record_type"
+ATTR_CONTENT = "content"
+ATTR_MIME_TYPE = "mime_type"
+
+# Maximum NDEF record body the firmware accepts (matches the library's
+# client-side ValueError threshold); enforced here too so an oversized
+# payload is rejected before spending a BLE connection on it.
+NFC_MAX_PAYLOAD = 512
+HA_TAG_URL_PREFIX = "https://www.home-assistant.io/tag/"
+
+# HA-facing record_type strings mapped to the library's NDEF record enum,
+# used only for debug logging; the write_nfc_* device methods already pick
+# the right NfcRecordType internally.
+_NFC_RECORD_TYPE_ENUM: dict[str, NfcRecordType] = {
+    "url": NfcRecordType.URI,
+    "text": NfcRecordType.TEXT,
+    "mime": NfcRecordType.MIME,
+}
 
 
 def _str_to_int_enum(enum_class: type[IntEnum]) -> Callable[[str], Any]:
@@ -213,6 +235,17 @@ SCHEMA_ACTIVATE_BUZZER = vol.Schema(
         vol.Optional("frequency_hz", default=1000): vol.All(vol.Coerce(int), vol.Range(min=0, max=12000)),
         vol.Optional("duration_ms", default=100): vol.All(vol.Coerce(int), vol.Range(min=5, max=1275)),
         vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+    }
+)
+
+SCHEMA_WRITE_NFC = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Optional(ATTR_RECORD_TYPE, default="url"): vol.In(
+            ["url", "text", "mime", "ha_tag"]
+        ),
+        vol.Required(ATTR_CONTENT): cv.string,
+        vol.Optional(ATTR_MIME_TYPE): cv.string,
     }
 )
 
@@ -979,6 +1012,102 @@ async def _async_activate_buzzer(call: ServiceCall) -> None:
     await _async_connect_and_run(call.hass, entry, _buzz)
 
 
+async def _async_write_nfc(call: ServiceCall) -> None:
+    """Handle the write_nfc service call.
+
+    Writes an NDEF record (URL, text, or MIME) to the device's NFC tag.
+    ``ha_tag`` is a convenience record_type: the content is treated as an
+    Home Assistant tag id and composed into a home-assistant.io tag URL
+    before being written as a url record.
+    """
+    device_id: str = call.data[ATTR_DEVICE_ID]
+    entry = _get_entry_for_device(call)
+    device_config = entry.runtime_data.device_config
+    if device_config is None or not any(
+        cfg.enabled for cfg in device_config.nfc_configs
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="no_nfc",
+            translation_placeholders={"device_id": device_id},
+        )
+    _raise_if_sleeping(entry, device_id)
+
+    record_type: str = call.data[ATTR_RECORD_TYPE]
+    content: str = call.data[ATTR_CONTENT]
+    mime_type: str | None = call.data.get(ATTR_MIME_TYPE)
+
+    if mime_type is not None and record_type != "mime":
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="mime_type_not_applicable",
+        )
+
+    if not content.strip():
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="nfc_content_empty",
+        )
+
+    if record_type == "ha_tag":
+        tag_id = content.strip()
+        content = HA_TAG_URL_PREFIX + quote(tag_id, safe="")
+        record_type = "url"
+
+    effective_mime_type: str | None = None
+    if record_type == "mime":
+        effective_mime_type = mime_type or "text/vcard"
+        mime_bytes = effective_mime_type.encode("utf-8")
+        if not 1 <= len(mime_bytes) <= 255:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="nfc_mime_type_invalid",
+                translation_placeholders={"mime_type": effective_mime_type},
+            )
+        size = 1 + len(mime_bytes) + len(content.encode("utf-8"))
+    else:
+        size = len(content.encode("utf-8"))
+
+    if size > NFC_MAX_PAYLOAD:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="nfc_content_too_long",
+            translation_placeholders={
+                "size": str(size),
+                "max": str(NFC_MAX_PAYLOAD),
+            },
+        )
+
+    async def _nfc(device: OpenDisplayDevice) -> None:
+        _LOGGER.debug(
+            "%s: writing NFC %s record",
+            device_id,
+            _NFC_RECORD_TYPE_ENUM[record_type].name,
+        )
+        try:
+            if record_type == "url":
+                await device.write_nfc_url(content)
+            elif record_type == "text":
+                await device.write_nfc_text(content)
+            else:  # mime
+                assert effective_mime_type is not None
+                await device.write_nfc_mime(effective_mime_type, content)
+        except NfcNotSupportedError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="nfc_not_supported",
+                translation_placeholders={"device_id": device_id},
+            ) from err
+        except NfcWriteError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="nfc_write_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+
+    await _async_connect_and_run(call.hass, entry, _nfc)
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register OpenDisplay services."""
@@ -998,3 +1127,4 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED)
     hass.services.async_register(DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER)
+    hass.services.async_register(DOMAIN, "write_nfc", _async_write_nfc, schema=SCHEMA_WRITE_NFC)

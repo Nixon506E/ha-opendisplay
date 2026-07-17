@@ -147,14 +147,35 @@
     "media_download_error": {
       "message": "Failed to download media: {error}"
     },
+    "mime_type_not_applicable": {
+      "message": "The mime_type field only applies to MIME records. Set record_type to mime, or omit mime_type."
+    },
     "multiple_errors": {
       "message": "Errors occurred for one or more devices:\n{errors}"
+    },
+    "nfc_content_empty": {
+      "message": "NFC content cannot be empty."
+    },
+    "nfc_content_too_long": {
+      "message": "NFC content is too large ({size} bytes). The maximum is {max} bytes."
+    },
+    "nfc_mime_type_invalid": {
+      "message": "MIME type `{mime_type}` is invalid. It must be 1-255 bytes when UTF-8 encoded."
+    },
+    "nfc_not_supported": {
+      "message": "Device `{device_id}` did not respond to the NFC write. Its firmware may not support writing NFC tags; try updating to the latest firmware."
+    },
+    "nfc_write_failed": {
+      "message": "Failed to write the NFC tag: {error}"
     },
     "no_buzzers": {
       "message": "Device `{device_id}` has no buzzer configured."
     },
     "no_leds": {
       "message": "Device `{device_id}` has no LEDs configured."
+    },
+    "no_nfc": {
+      "message": "Device `{device_id}` has no NFC chip configured."
     },
     "no_targets_specified": {
       "message": "No target devices specified."
@@ -186,6 +207,14 @@
         "cover": "Cover",
         "crop": "Crop",
         "stretch": "Stretch"
+      }
+    },
+    "nfc_record_type": {
+      "options": {
+        "url": "URL",
+        "text": "Text",
+        "mime": "MIME data (e.g. vCard)",
+        "ha_tag": "Home Assistant tag"
       }
     },
     "refresh_mode": {
@@ -340,6 +369,28 @@
         "repeats": {
           "name": "Repeats",
           "description": "Number of times to repeat the tone (1-255)."
+        }
+      }
+    },
+    "write_nfc": {
+      "name": "Write NFC tag",
+      "description": "Writes an NDEF record (URL, text, or MIME data such as a vCard) to the NFC chip of an OpenDisplay device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The OpenDisplay device."
+        },
+        "record_type": {
+          "name": "Record type",
+          "description": "The type of NDEF record to write. Home Assistant tag writes a Home Assistant tag URL; scanning it with the companion app fires tag_scanned and registers the tag automatically on first scan."
+        },
+        "content": {
+          "name": "Content",
+          "description": "The data to write. For a URL record, the URL; for a text record, the text; for a MIME record, the raw data; for a Home Assistant tag, the tag id. Limited to 512 bytes when UTF-8 encoded."
+        },
+        "mime_type": {
+          "name": "MIME type",
+          "description": "The MIME type of the content. Only applies to MIME records; defaults to text/vcard."
         }
       }
     },
