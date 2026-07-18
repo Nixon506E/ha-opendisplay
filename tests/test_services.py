@@ -328,3 +328,31 @@ async def test_live_send_passes_state_and_refresh_mode():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("measured", [True, False])
+async def test_send_image_forwards_measured_palette_choice(measured):
+    """The service's measured_palette option must reach prepare_image.
+
+    Regression: ``_async_send_image`` accepted ``use_measured_palettes`` but
+    never forwarded it, so ``prepare_image``'s default (True) silently won and
+    ``measured_palette: false`` in drawcustom/upload_image was a no-op — flat
+    UI colors were always quantized against the measured panel palette.
+    """
+    hass, entry, _, _ = _make_env(last_seen=time.time())  # awake -> live path
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    od = _device_ctx_factory(device=device)
+    p1, p2, p3, p4, p5 = _patches(od)
+    img = PILImage.new("RGB", (1, 1))
+    with p1 as prep, p2, p3, p4, p5:
+        await _async_send_image(
+            hass,
+            entry,
+            img,
+            dither_mode=DitherMode.NONE,
+            refresh_mode=RefreshMode.FULL,
+            use_measured_palettes=measured,
+        )
+    assert prep.call_args.kwargs.get("use_measured_palettes") is measured

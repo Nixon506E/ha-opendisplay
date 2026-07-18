@@ -528,6 +528,7 @@ async def _async_send_image(
             tone=tone,
             fit=fit,
             rotate=rotate,
+            use_measured_palettes=use_measured_palettes,
         )
     )
 
