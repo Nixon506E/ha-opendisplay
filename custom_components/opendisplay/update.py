@@ -65,13 +65,11 @@ _OTA_INSTALL_IC_TYPES = {ICType.EFR32BG22}
 def _format_firmware_version(major: int, minor: int) -> str:
     """Format firmware version to match GitHub tag convention.
 
-    The 1.x firmware era uses single-digit minor tags (1.0–1.9 on GitHub),
-    but the firmware byte may store minor*10 (e.g. minor=60 → "1.6").
-    Dividing by 10 aligns the installed string with GitHub tag_names so
-    AwesomeVersion comparisons work correctly.
+    Firmware parses its own BUILD_VERSION string with a plain int conversion
+    (e.g. `atoi` on the substring after the dot), so the minor byte already
+    equals the literal digits in the tag_name (1.6 → 6, 1.71 → 71, 2.20 → 20).
+    No scaling is needed.
     """
-    if major >= 1 and minor >= 10:
-        minor = minor // 10
     return f"{major}.{minor}"
 
 
