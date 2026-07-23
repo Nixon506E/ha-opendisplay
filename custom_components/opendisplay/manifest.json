@@ -16,5 +16,6 @@
   "issue_tracker": "https://github.com/OpenDisplay/Home_Assistant_Integration/issues",
   "loggers": ["opendisplay"],
   "requirements": ["py-opendisplay[silabs-ota]==7.14.1", "odl-renderer==0.5.12"],
-  "version": "3.0.0-beta.9"
+  "version": "3.0.0-beta.9",
+  "zeroconf": ["_opendisplay._tcp.local."]
 }

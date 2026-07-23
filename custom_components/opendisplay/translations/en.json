@@ -5,6 +5,7 @@
             "already_in_progress": "Configuration flow is already in progress",
             "cannot_connect": "Failed to connect",
             "no_devices_found": "No devices found on the network",
+            "no_mac": "The discovered device did not advertise a MAC address and cannot be set up.",
             "reauth_successful": "Re-authentication was successful",
             "unknown": "Unexpected error"
         },
@@ -47,6 +48,10 @@
                     "address": "Select the Bluetooth device to set up."
                 },
                 "description": "Choose a device to set up"
+            },
+            "zeroconf_confirm": {
+                "description": "Do you want to set up {name}, discovered over WiFi?",
+                "title": "OpenDisplay device found"
             }
         }
     },
