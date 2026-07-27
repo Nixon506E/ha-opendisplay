@@ -254,6 +254,40 @@ def write_translation_file(path: Path, flat: dict[str, str]) -> None:
     )
 
 
+class ApiError(RuntimeError):
+    """A non-2xx response from the models endpoint, with the body preserved."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        self.status = status
+        self.detail = detail
+        super().__init__(f"HTTP {status}: {detail or '(no response body)'}")
+
+    def advice(self) -> str:
+        """Actionable next step for the failures that actually happen."""
+        if self.status in (401, 403):
+            return (
+                "The token was rejected for GitHub Models.\n"
+                "  In Actions: 'models: read' on the workflow is necessary but\n"
+                "  NOT sufficient. Models must also be enabled for the org, at\n"
+                "  Organization Settings > Code, planning, and automation >\n"
+                "  Models > Development > 'Models in your organization'.\n"
+                "  (It is not under Copilot policies.) If the org belongs to an\n"
+                "  enterprise, an enterprise owner has to enable it there first.\n"
+                "  A repository GITHUB_TOKEN inherits the ORGANISATION's access,\n"
+                "  not the access of whoever triggered the run, so a personal\n"
+                "  token that works locally proves nothing about CI.\n"
+                "  Locally: export a PAT carrying the models:read scope."
+            )
+        if self.status == 404:
+            return (
+                f"Model {MODEL!r} was not found. Check it against "
+                "https://models.github.ai/catalog/models."
+            )
+        if self.status >= 500:
+            return "The models endpoint failed. Re-run the workflow."
+        return ""
+
+
 def call_model(token: str, language: str, batch: dict[str, str]) -> dict[str, str]:
     """Translate one batch of strings. Raises on transport or parse failure."""
     body = json.dumps(
@@ -288,8 +322,19 @@ def call_model(token: str, language: str, batch: dict[str, str]) -> dict[str, st
         },
     )
 
-    with urllib.request.urlopen(request, timeout=180, context=SSL_CONTEXT) as response:
-        payload = json.load(response)
+    try:
+        with urllib.request.urlopen(
+            request, timeout=180, context=SSL_CONTEXT
+        ) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as err:
+        # The API explains itself in the response body. Surfacing it turns an
+        # opaque "HTTP Error 403: Forbidden" traceback into something callable.
+        try:
+            detail = err.read().decode("utf-8", "replace").strip()[:400]
+        except Exception:  # noqa: BLE001 - diagnostics must never mask the error
+            detail = ""
+        raise ApiError(err.code, detail) from err
 
     content = payload["choices"][0]["message"]["content"].strip()
 
@@ -362,8 +407,8 @@ def translate_language(
 
         try:
             response = call_model(token, language, numbered)
-        except urllib.error.HTTPError as err:
-            if err.code == 429:
+        except ApiError as err:
+            if err.status == 429:
                 # Daily or per-minute budget exhausted. Keep what we have: a
                 # partial-but-valid PR beats a failed run.
                 print(f"  [{code}] rate limited, stopping early", file=sys.stderr)
@@ -387,7 +432,7 @@ def translate_language(
             throttle[0] = time.monotonic()
             try:
                 retry = call_model(token, language, {"0": todo[key]})
-            except urllib.error.HTTPError:
+            except ApiError:
                 rejected[key] = reason
                 continue
             retried = {key: retry["0"]} if isinstance(retry.get("0"), str) else {}
@@ -560,4 +605,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except ApiError as error:
+        print(f"\n{error}", file=sys.stderr)
+        if guidance := error.advice():
+            print(f"\n{guidance}", file=sys.stderr)
+        sys.exit(1)
