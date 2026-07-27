@@ -40,6 +40,7 @@ DIRECT_ADDRESS = {
     "es": (r"\btú\b|\btu\b|\busted\b|\bsus?\b|\bvuestro\b", re.IGNORECASE),
     "it": (r"\btu\b|\btuo\b|\blei\b|\bsuo\b|\bvostro\b", re.IGNORECASE),
     "pl": (r"\bty\b|\btwój\b|\btwoje\w*\b|\bpan\b|\bpani\b", re.IGNORECASE),
+    "pt": (r"\bvocê\b|\btu\b|\bteu\b|\btua\b|\bseu\b|\bsua\b|\bvosso\b", re.IGNORECASE),
     "pt-BR": (r"\bvocê\b|\bteu\b|\btua\b|\bseu\b|\bsua\b", re.IGNORECASE),
     "cs": (r"\bty\b|\btvůj\b|\btvoje\w*\b|\bvy\b|\bváš\b|\bvaše\w*\b", re.IGNORECASE),
 }

@@ -88,6 +88,9 @@ LANGUAGES = {
     "es": "Spanish",
     "it": "Italian",
     "pl": "Polish",
+    # Home Assistant treats these as separate locales, and they diverge in
+    # everyday UI vocabulary (ecra/tela, utilizador/usuario).
+    "pt": "European Portuguese",
     "pt-BR": "Brazilian Portuguese",
     "cs": "Czech",
 }
@@ -482,7 +485,10 @@ def main() -> int:
             )
 
         if not todo and not obsolete:
-            print(f"{code} ({language}): up to date")
+            flagged = (
+                f", {len(needs_review)} flagged for review" if needs_review else ""
+            )
+            print(f"{code} ({language}): up to date{flagged}")
             continue
 
         if args.dry_run:

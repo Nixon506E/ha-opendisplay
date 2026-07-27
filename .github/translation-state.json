@@ -5081,6 +5081,732 @@
       "src": "96ea14b97cf7"
     }
   },
+  "pt": {
+    "config\u0000abort\u0000already_configured": {
+      "out": "dd3b80abffdd",
+      "src": "c2936e02a0d2"
+    },
+    "config\u0000abort\u0000already_in_progress": {
+      "out": "5c1b27c55792",
+      "src": "985a72ad93a3"
+    },
+    "config\u0000abort\u0000cannot_connect": {
+      "out": "b7925ed3a740",
+      "src": "46c9f3b7520f"
+    },
+    "config\u0000abort\u0000no_devices_found": {
+      "out": "99b93bd5fcb6",
+      "src": "b8f28e84cf0b"
+    },
+    "config\u0000abort\u0000reauth_successful": {
+      "out": "c3a3779b59e8",
+      "src": "e5b83989735c"
+    },
+    "config\u0000abort\u0000unknown": {
+      "out": "ad9544920db5",
+      "src": "d24c41ae530a"
+    },
+    "config\u0000error\u0000cannot_connect": {
+      "out": "b7925ed3a740",
+      "src": "46c9f3b7520f"
+    },
+    "config\u0000error\u0000invalid_auth": {
+      "out": "80c2dd42d824",
+      "src": "4ca089878c5f"
+    },
+    "config\u0000error\u0000invalid_key_format": {
+      "out": "9fd1ae7d6800",
+      "src": "f7b03dd699df"
+    },
+    "config\u0000error\u0000unknown": {
+      "out": "ad9544920db5",
+      "src": "d24c41ae530a"
+    },
+    "config\u0000flow_title": {
+      "out": "5e291d7bcb2d",
+      "src": "5e291d7bcb2d"
+    },
+    "config\u0000step\u0000bluetooth_confirm\u0000description": {
+      "out": "9e758bdb4d0a",
+      "src": "bcfd5a24b7d7"
+    },
+    "config\u0000step\u0000encryption_key\u0000data\u0000encryption_key": {
+      "out": "5e30d3742c92",
+      "src": "16b3c9d5573d"
+    },
+    "config\u0000step\u0000encryption_key\u0000data_description\u0000encryption_key": {
+      "out": "4767aba1e652",
+      "src": "e64cd2e7e647"
+    },
+    "config\u0000step\u0000encryption_key\u0000description": {
+      "out": "3fa11c38479b",
+      "src": "664d3f12bfe6"
+    },
+    "config\u0000step\u0000encryption_key\u0000title": {
+      "out": "23874a8cd09c",
+      "src": "c30d1ca158a3"
+    },
+    "config\u0000step\u0000reauth_confirm\u0000data\u0000encryption_key": {
+      "out": "5e30d3742c92",
+      "src": "16b3c9d5573d"
+    },
+    "config\u0000step\u0000reauth_confirm\u0000data_description\u0000encryption_key": {
+      "out": "4767aba1e652",
+      "src": "e64cd2e7e647"
+    },
+    "config\u0000step\u0000reauth_confirm\u0000description": {
+      "out": "7ee83d745abe",
+      "src": "f53b69d3be84"
+    },
+    "config\u0000step\u0000reauth_confirm\u0000title": {
+      "out": "a434d6e7a842",
+      "src": "7e22a752572f"
+    },
+    "config\u0000step\u0000user\u0000data\u0000address": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "config\u0000step\u0000user\u0000data_description\u0000address": {
+      "out": "e3136b1adeed",
+      "src": "a083a457cfb1"
+    },
+    "config\u0000step\u0000user\u0000description": {
+      "out": "b90ef1e43fe2",
+      "src": "109135454652"
+    },
+    "entity\u0000binary_sensor\u0000update_pending\u0000name": {
+      "out": "ead340a37e92",
+      "src": "8e0a4b18ae75"
+    },
+    "entity\u0000event\u0000button\u0000name": {
+      "out": "4111fd0385ea",
+      "src": "2dcae43716c2"
+    },
+    "entity\u0000event\u0000button\u0000state_attributes\u0000event_type\u0000state\u0000button_down": {
+      "out": "1d1f3249eb2c",
+      "src": "8352c89d20b4"
+    },
+    "entity\u0000event\u0000button\u0000state_attributes\u0000event_type\u0000state\u0000button_up": {
+      "out": "4d2af96bc451",
+      "src": "7f18b4912929"
+    },
+    "entity\u0000event\u0000touch\u0000name": {
+      "out": "837842a1ac38",
+      "src": "c915d14278fc"
+    },
+    "entity\u0000event\u0000touch\u0000state_attributes\u0000event_type\u0000state\u0000touch_down": {
+      "out": "a64b044c7afc",
+      "src": "0234a9576230"
+    },
+    "entity\u0000event\u0000touch\u0000state_attributes\u0000event_type\u0000state\u0000touch_move": {
+      "out": "786c9e985556",
+      "src": "67aeac815e94"
+    },
+    "entity\u0000event\u0000touch\u0000state_attributes\u0000event_type\u0000state\u0000touch_up": {
+      "out": "877d610bc8d6",
+      "src": "7c65519d3bb3"
+    },
+    "entity\u0000image\u0000content\u0000name": {
+      "out": "379eeded820c",
+      "src": "047c6db3382a"
+    },
+    "entity\u0000sensor\u0000battery_voltage\u0000name": {
+      "out": "9558199749f3",
+      "src": "39d6c91b57ce"
+    },
+    "entity\u0000sensor\u0000last_seen\u0000name": {
+      "out": "a060c6768208",
+      "src": "21fd79c7de52"
+    },
+    "entity\u0000sensor\u0000rssi\u0000name": {
+      "out": "e56501a19190",
+      "src": "2604d15c1187"
+    },
+    "entity\u0000update\u0000firmware\u0000name": {
+      "out": "c2a314c3b32b",
+      "src": "c2a314c3b32b"
+    },
+    "exceptions\u0000authentication_error\u0000message": {
+      "out": "19b11cedb540",
+      "src": "3d9f7c0c6d80"
+    },
+    "exceptions\u0000device_not_found\u0000message": {
+      "out": "dd2fad6c9806",
+      "src": "f244d0d2db8d"
+    },
+    "exceptions\u0000device_sleeping\u0000message": {
+      "out": "68290bbca9f8",
+      "src": "e95d25bd6fc7"
+    },
+    "exceptions\u0000device_sleeping_ota\u0000message": {
+      "out": "55a286024f3c",
+      "src": "430e3a1baa6a"
+    },
+    "exceptions\u0000invalid_device_id\u0000message": {
+      "out": "f001b2f55b3b",
+      "src": "cc64cc29ceeb"
+    },
+    "exceptions\u0000media_download_error\u0000message": {
+      "out": "2a58887dea26",
+      "src": "5852129dd920"
+    },
+    "exceptions\u0000mime_type_not_applicable\u0000message": {
+      "out": "c08862a5cd36",
+      "src": "de700f02fbd5"
+    },
+    "exceptions\u0000multiple_errors\u0000message": {
+      "out": "145c56dd9649",
+      "src": "f17c68e0a848"
+    },
+    "exceptions\u0000nfc_content_empty\u0000message": {
+      "out": "18796d161a54",
+      "src": "b93a1a6ebdc0"
+    },
+    "exceptions\u0000nfc_content_too_long\u0000message": {
+      "out": "bbc90e8af04e",
+      "src": "8f580b9c6c76"
+    },
+    "exceptions\u0000nfc_mime_type_invalid\u0000message": {
+      "out": "ab146b824727",
+      "src": "5a5f44fe332f"
+    },
+    "exceptions\u0000nfc_not_supported\u0000message": {
+      "out": "3bc026663d86",
+      "src": "8fdcd0e2bd17"
+    },
+    "exceptions\u0000nfc_write_failed\u0000message": {
+      "out": "e032cc0feb72",
+      "src": "e8186303a52e"
+    },
+    "exceptions\u0000no_buzzers\u0000message": {
+      "out": "79675db97ead",
+      "src": "9c014dfeac91"
+    },
+    "exceptions\u0000no_leds\u0000message": {
+      "out": "5ea1a19390b6",
+      "src": "6a302f8f22ee"
+    },
+    "exceptions\u0000no_nfc\u0000message": {
+      "out": "9f2692ab0584",
+      "src": "abb1917ad57e"
+    },
+    "exceptions\u0000no_targets_specified\u0000message": {
+      "out": "82b619c1673b",
+      "src": "80c472afefe6"
+    },
+    "exceptions\u0000upload_error\u0000message": {
+      "out": "34ab7a45dc33",
+      "src": "75561a03be6e"
+    },
+    "exceptions\u0000url_not_allowed\u0000message": {
+      "out": "ff9646286a09",
+      "src": "33ffb9a9f2c4"
+    },
+    "options\u0000step\u0000init\u0000data\u0000blocks_per_ack": {
+      "out": "ae0e734c291f",
+      "src": "3e2a554e69a4"
+    },
+    "options\u0000step\u0000init\u0000data\u0000max_queue_size": {
+      "out": "9d9b7e034092",
+      "src": "297af7027dd0"
+    },
+    "options\u0000step\u0000init\u0000data\u0000missed_cycles": {
+      "out": "8c13f06661c0",
+      "src": "59b78644491a"
+    },
+    "options\u0000step\u0000init\u0000data\u0000probe_before_queue": {
+      "out": "1f9cead201f8",
+      "src": "02c4211a58b2"
+    },
+    "options\u0000step\u0000init\u0000data\u0000queue_timeout_hours": {
+      "out": "bcc4fff0e185",
+      "src": "be70fc5cca79"
+    },
+    "options\u0000step\u0000init\u0000data\u0000sleep_mode": {
+      "out": "57e4d4e87e37",
+      "src": "f925c0e541ce"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000blocks_per_ack": {
+      "out": "4c255e9a4fe1",
+      "src": "3a693b19d3c6"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000max_queue_size": {
+      "out": "1f37a740bb93",
+      "src": "50260959ee56"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000missed_cycles": {
+      "out": "15772cccf539",
+      "src": "6ce493f4c44d"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000probe_before_queue": {
+      "out": "601d5de72a1a",
+      "src": "5d0f2985ffdf"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000queue_timeout_hours": {
+      "out": "05d0517db9c9",
+      "src": "34895000b491"
+    },
+    "options\u0000step\u0000init\u0000data_description\u0000sleep_mode": {
+      "out": "f75a06dbe12d",
+      "src": "4acfeb65d10d"
+    },
+    "selector\u0000dither_mode\u0000options\u0000atkinson": {
+      "out": "7a8fe6d47b5b",
+      "src": "7a8fe6d47b5b"
+    },
+    "selector\u0000dither_mode\u0000options\u0000burkes": {
+      "out": "1b75087201fb",
+      "src": "1b75087201fb"
+    },
+    "selector\u0000dither_mode\u0000options\u0000floyd_steinberg": {
+      "out": "37969811a3cf",
+      "src": "37969811a3cf"
+    },
+    "selector\u0000dither_mode\u0000options\u0000jarvis_judice_ninke": {
+      "out": "7020241adf78",
+      "src": "7020241adf78"
+    },
+    "selector\u0000dither_mode\u0000options\u0000none": {
+      "out": "496a53a0f11e",
+      "src": "dc937b598926"
+    },
+    "selector\u0000dither_mode\u0000options\u0000ordered": {
+      "out": "d2aba6849adb",
+      "src": "007877479e21"
+    },
+    "selector\u0000dither_mode\u0000options\u0000sierra": {
+      "out": "d5eef8ad210c",
+      "src": "d5eef8ad210c"
+    },
+    "selector\u0000dither_mode\u0000options\u0000sierra_lite": {
+      "out": "20da8cc85f38",
+      "src": "20da8cc85f38"
+    },
+    "selector\u0000dither_mode\u0000options\u0000stucki": {
+      "out": "a17d2b13b6f9",
+      "src": "a17d2b13b6f9"
+    },
+    "selector\u0000fit_mode\u0000options\u0000contain": {
+      "out": "a190afc4b4ad",
+      "src": "e534a2c2b456"
+    },
+    "selector\u0000fit_mode\u0000options\u0000cover": {
+      "out": "236ed490ad06",
+      "src": "fa8d84566676"
+    },
+    "selector\u0000fit_mode\u0000options\u0000crop": {
+      "out": "2f04fbd94be9",
+      "src": "98caf7c43c6f"
+    },
+    "selector\u0000fit_mode\u0000options\u0000stretch": {
+      "out": "63031bd7189f",
+      "src": "a33fbcf83f7b"
+    },
+    "selector\u0000nfc_record_type\u0000options\u0000ha_tag": {
+      "out": "865fe819376c",
+      "src": "d1d47a8fa544"
+    },
+    "selector\u0000nfc_record_type\u0000options\u0000mime": {
+      "out": "37ca9e725a29",
+      "src": "f98d7539e627"
+    },
+    "selector\u0000nfc_record_type\u0000options\u0000text": {
+      "out": "6df3d6661c09",
+      "src": "71988c4d8e08"
+    },
+    "selector\u0000nfc_record_type\u0000options\u0000url": {
+      "out": "e7a241debad5",
+      "src": "e7a241debad5"
+    },
+    "selector\u0000refresh_mode\u0000options\u0000fast": {
+      "out": "76495f26e6c5",
+      "src": "6c582b62e0e5"
+    },
+    "selector\u0000refresh_mode\u0000options\u0000full": {
+      "out": "23e3685fbe6c",
+      "src": "008dacb6d1e8"
+    },
+    "selector\u0000refresh_mode\u0000options\u0000partial": {
+      "out": "154b61b1e9da",
+      "src": "a4d50fb85403"
+    },
+    "selector\u0000sleep_mode\u0000options\u0000auto": {
+      "out": "7557cb15b0a8",
+      "src": "132990bd8ef7"
+    },
+    "selector\u0000sleep_mode\u0000options\u0000off": {
+      "out": "ba2d03af8703",
+      "src": "34598efe7b90"
+    },
+    "selector\u0000sleep_mode\u0000options\u0000on": {
+      "out": "91c07f2beaee",
+      "src": "bde131e31c9e"
+    },
+    "services\u0000activate_buzzer\u0000description": {
+      "out": "04810c1128bb",
+      "src": "1898784614cb"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
+      "out": "8533aacf2904",
+      "src": "7dec980cb238"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000duration_ms\u0000description": {
+      "out": "c8b37eb09106",
+      "src": "cd1bc75ca60c"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000duration_ms\u0000name": {
+      "out": "6cecb49a79df",
+      "src": "4fc52a3c4c55"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
+      "out": "7b1bb1eec059",
+      "src": "510fc20311e3"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
+      "out": "4ccef85f69f6",
+      "src": "16b6668d9831"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000instance\u0000description": {
+      "out": "5eb44e6b6ba0",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000instance\u0000name": {
+      "out": "7ce81db09421",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000repeats\u0000description": {
+      "out": "3dfd2b7ef116",
+      "src": "1f88b0fe23ea"
+    },
+    "services\u0000activate_buzzer\u0000fields\u0000repeats\u0000name": {
+      "out": "49ddd1cb9a27",
+      "src": "92ee0233f013"
+    },
+    "services\u0000activate_buzzer\u0000name": {
+      "out": "1d809ae66dbe",
+      "src": "0b80285753b7"
+    },
+    "services\u0000activate_led\u0000description": {
+      "out": "59bb4f5a7e5b",
+      "src": "6cbd645597cc"
+    },
+    "services\u0000activate_led\u0000fields\u0000brightness\u0000description": {
+      "out": "345a664f32bb",
+      "src": "6ad88a28230d"
+    },
+    "services\u0000activate_led\u0000fields\u0000brightness\u0000name": {
+      "out": "ff070ada77b9",
+      "src": "ec811d30a89c"
+    },
+    "services\u0000activate_led\u0000fields\u0000color1\u0000description": {
+      "out": "9fc052573aad",
+      "src": "17f145013241"
+    },
+    "services\u0000activate_led\u0000fields\u0000color1\u0000name": {
+      "out": "067701d4a113",
+      "src": "571461f36f3a"
+    },
+    "services\u0000activate_led\u0000fields\u0000color2\u0000description": {
+      "out": "d1170de50398",
+      "src": "f2680a4bbe85"
+    },
+    "services\u0000activate_led\u0000fields\u0000color2\u0000name": {
+      "out": "87ad039b4534",
+      "src": "ef792d287872"
+    },
+    "services\u0000activate_led\u0000fields\u0000color3\u0000description": {
+      "out": "533b4dfaad9f",
+      "src": "b8ecd353b426"
+    },
+    "services\u0000activate_led\u0000fields\u0000color3\u0000name": {
+      "out": "474cb86742e3",
+      "src": "48d54e046d29"
+    },
+    "services\u0000activate_led\u0000fields\u0000device_id\u0000description": {
+      "out": "8533aacf2904",
+      "src": "7dec980cb238"
+    },
+    "services\u0000activate_led\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count1\u0000description": {
+      "out": "12c74c15567f",
+      "src": "4ffdadde31c2"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count1\u0000name": {
+      "out": "ed6275c95d0e",
+      "src": "13c6a2e5c22e"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count2\u0000description": {
+      "out": "511d52f36bb9",
+      "src": "86dc999a3915"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count2\u0000name": {
+      "out": "85892035b1b3",
+      "src": "2be36d8449dc"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count3\u0000description": {
+      "out": "d07d90def31e",
+      "src": "aa40c396a9a4"
+    },
+    "services\u0000activate_led\u0000fields\u0000flash_count3\u0000name": {
+      "out": "6c9301e03578",
+      "src": "7978910dc6b2"
+    },
+    "services\u0000activate_led\u0000fields\u0000instance\u0000description": {
+      "out": "85f9f142ab02",
+      "src": "0531b37de90a"
+    },
+    "services\u0000activate_led\u0000fields\u0000instance\u0000name": {
+      "out": "698c0545eb19",
+      "src": "f942926204c7"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay1\u0000description": {
+      "out": "acdf59fcf8ba",
+      "src": "1b65dcfcea95"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay1\u0000name": {
+      "out": "2e08efa9b344",
+      "src": "71452f436c33"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay2\u0000description": {
+      "out": "4ade059df03a",
+      "src": "181e03f33cbf"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay2\u0000name": {
+      "out": "5f094e45de54",
+      "src": "6a50551e5355"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay3\u0000description": {
+      "out": "df4e5697770e",
+      "src": "5c5973b586df"
+    },
+    "services\u0000activate_led\u0000fields\u0000inter_delay3\u0000name": {
+      "out": "ef688ac09ca2",
+      "src": "b0f72903777e"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay1\u0000description": {
+      "out": "96add63966d7",
+      "src": "2139915c35bc"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay1\u0000name": {
+      "out": "43a959caaa5a",
+      "src": "2fb02375bae0"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay2\u0000description": {
+      "out": "09eb9a85c5a6",
+      "src": "9a3a8cccb3bb"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay2\u0000name": {
+      "out": "49cfb3d3f05e",
+      "src": "597cbe87a7ec"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay3\u0000description": {
+      "out": "b619bbb5324c",
+      "src": "8a965100226c"
+    },
+    "services\u0000activate_led\u0000fields\u0000loop_delay3\u0000name": {
+      "out": "164a38e4e4d7",
+      "src": "66d787aa1bad"
+    },
+    "services\u0000activate_led\u0000fields\u0000repeats\u0000description": {
+      "out": "fc5ee301c18b",
+      "src": "e40e956e3762"
+    },
+    "services\u0000activate_led\u0000fields\u0000repeats\u0000name": {
+      "out": "49ddd1cb9a27",
+      "src": "92ee0233f013"
+    },
+    "services\u0000activate_led\u0000name": {
+      "out": "f7f571044e1e",
+      "src": "91933e94cc57"
+    },
+    "services\u0000drawcustom\u0000description": {
+      "out": "feccfaa98173",
+      "src": "55f9f3333fc0"
+    },
+    "services\u0000drawcustom\u0000fields\u0000background\u0000description": {
+      "out": "ae7d4384b96f",
+      "src": "f5858405d78a"
+    },
+    "services\u0000drawcustom\u0000fields\u0000background\u0000name": {
+      "out": "4c1191f0c8bf",
+      "src": "3e314dafdf7c"
+    },
+    "services\u0000drawcustom\u0000fields\u0000dither\u0000description": {
+      "out": "f9bdeb9d8284",
+      "src": "d7c737e5d01e"
+    },
+    "services\u0000drawcustom\u0000fields\u0000dither\u0000name": {
+      "out": "576d270bd2f5",
+      "src": "35fb13830002"
+    },
+    "services\u0000drawcustom\u0000fields\u0000dry-run\u0000description": {
+      "out": "bc1be1e1422a",
+      "src": "54f5f06db00c"
+    },
+    "services\u0000drawcustom\u0000fields\u0000dry-run\u0000name": {
+      "out": "0b66acd48cad",
+      "src": "d5da154d9f00"
+    },
+    "services\u0000drawcustom\u0000fields\u0000measured_palette\u0000description": {
+      "out": "a70081429603",
+      "src": "53842124c7af"
+    },
+    "services\u0000drawcustom\u0000fields\u0000measured_palette\u0000name": {
+      "out": "2e8f0e046ee9",
+      "src": "672d38bdeb19"
+    },
+    "services\u0000drawcustom\u0000fields\u0000payload\u0000description": {
+      "out": "dc2db307984f",
+      "src": "a72e3d514ead"
+    },
+    "services\u0000drawcustom\u0000fields\u0000payload\u0000name": {
+      "out": "fb1bf1494983",
+      "src": "99733344956d"
+    },
+    "services\u0000drawcustom\u0000fields\u0000refresh_type\u0000description": {
+      "out": "47214ef9413c",
+      "src": "d87a3d5c4d06"
+    },
+    "services\u0000drawcustom\u0000fields\u0000refresh_type\u0000name": {
+      "out": "721e465fbff3",
+      "src": "201b25b874bb"
+    },
+    "services\u0000drawcustom\u0000fields\u0000rotate\u0000description": {
+      "out": "3e22aeb09723",
+      "src": "21e39f93db71"
+    },
+    "services\u0000drawcustom\u0000fields\u0000rotate\u0000name": {
+      "out": "ae0506abfa72",
+      "src": "57b5e2fc1bba"
+    },
+    "services\u0000drawcustom\u0000name": {
+      "out": "9c4313360381",
+      "src": "d0df7a6244ea"
+    },
+    "services\u0000upload_image\u0000description": {
+      "out": "7b60359fea5b",
+      "src": "24e19354eaa4"
+    },
+    "services\u0000upload_image\u0000fields\u0000device_id\u0000description": {
+      "out": "28c8a70eeb47",
+      "src": "ee157333391e"
+    },
+    "services\u0000upload_image\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000upload_image\u0000fields\u0000dither_mode\u0000description": {
+      "out": "15dd4623733a",
+      "src": "70483fdfe7ec"
+    },
+    "services\u0000upload_image\u0000fields\u0000dither_mode\u0000name": {
+      "out": "576d270bd2f5",
+      "src": "35fb13830002"
+    },
+    "services\u0000upload_image\u0000fields\u0000fit_mode\u0000description": {
+      "out": "f789820e1b04",
+      "src": "8d2c8735a962"
+    },
+    "services\u0000upload_image\u0000fields\u0000fit_mode\u0000name": {
+      "out": "66d2c4bb0197",
+      "src": "8a59790c9187"
+    },
+    "services\u0000upload_image\u0000fields\u0000image\u0000description": {
+      "out": "9d305a7541b4",
+      "src": "ba6d9fb759b0"
+    },
+    "services\u0000upload_image\u0000fields\u0000image\u0000name": {
+      "out": "8fc6b8b69804",
+      "src": "1aa4cb0bcca7"
+    },
+    "services\u0000upload_image\u0000fields\u0000measured_palette\u0000description": {
+      "out": "302694fbfe69",
+      "src": "53842124c7af"
+    },
+    "services\u0000upload_image\u0000fields\u0000measured_palette\u0000name": {
+      "out": "2e8f0e046ee9",
+      "src": "672d38bdeb19"
+    },
+    "services\u0000upload_image\u0000fields\u0000refresh_mode\u0000description": {
+      "out": "c95e6952e934",
+      "src": "0fe957da240a"
+    },
+    "services\u0000upload_image\u0000fields\u0000refresh_mode\u0000name": {
+      "out": "6fae77d3314e",
+      "src": "c72fd253298c"
+    },
+    "services\u0000upload_image\u0000fields\u0000rotation\u0000description": {
+      "out": "5b3b8110be8c",
+      "src": "b639ab27209e"
+    },
+    "services\u0000upload_image\u0000fields\u0000rotation\u0000name": {
+      "out": "ae0506abfa72",
+      "src": "57b5e2fc1bba"
+    },
+    "services\u0000upload_image\u0000fields\u0000tone_compression\u0000description": {
+      "out": "f425afe972db",
+      "src": "6453b45ae0cc"
+    },
+    "services\u0000upload_image\u0000fields\u0000tone_compression\u0000name": {
+      "out": "5b7274955c25",
+      "src": "ffaed65f03fa"
+    },
+    "services\u0000upload_image\u0000name": {
+      "out": "9c76eeac5490",
+      "src": "ffe4df6c7ca6"
+    },
+    "services\u0000upload_image\u0000sections\u0000additional_fields\u0000name": {
+      "out": "06c23075d12f",
+      "src": "092170b2408b"
+    },
+    "services\u0000write_nfc\u0000description": {
+      "out": "86305afffc85",
+      "src": "3c1f6a6d643e"
+    },
+    "services\u0000write_nfc\u0000fields\u0000content\u0000description": {
+      "out": "ed5387b129b8",
+      "src": "857d1cf0bf90"
+    },
+    "services\u0000write_nfc\u0000fields\u0000content\u0000name": {
+      "out": "5fc119964393",
+      "src": "47bd29075f8b"
+    },
+    "services\u0000write_nfc\u0000fields\u0000device_id\u0000description": {
+      "out": "8533aacf2904",
+      "src": "7dec980cb238"
+    },
+    "services\u0000write_nfc\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000write_nfc\u0000fields\u0000mime_type\u0000description": {
+      "out": "4b0fb5174cfd",
+      "src": "4eb2b40ec666"
+    },
+    "services\u0000write_nfc\u0000fields\u0000mime_type\u0000name": {
+      "out": "899f5b786081",
+      "src": "849e8a810960"
+    },
+    "services\u0000write_nfc\u0000fields\u0000record_type\u0000description": {
+      "out": "164114875f86",
+      "src": "936cf634012f"
+    },
+    "services\u0000write_nfc\u0000fields\u0000record_type\u0000name": {
+      "out": "18f51289ed88",
+      "src": "91cf117b1d70"
+    },
+    "services\u0000write_nfc\u0000name": {
+      "out": "39b2a7664821",
+      "src": "96ea14b97cf7"
+    }
+  },
   "pt-BR": {
     "config\u0000abort\u0000already_configured": {
       "out": "dd3b80abffdd",
