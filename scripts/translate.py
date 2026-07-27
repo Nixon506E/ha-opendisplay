@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Fill in missing Home Assistant translations using GitHub Models.
+"""Fill in missing Home Assistant translations with an LLM.
+
+Works with any OpenAI-compatible chat/completions endpoint. OpenRouter and
+GitHub Models are configured out of the box; whichever API key is present in
+the environment decides which is used. See PROVIDERS.
 
 Source of truth is ``translations/en.json`` -- the fully resolved English file.
 ``strings.json`` is NOT usable here: it contains ``[%key:...%]`` references that
@@ -66,19 +70,64 @@ STATE_FILE = REPO_ROOT / ".github" / "translation-state.json"
 # True to let fresh machine output win instead.
 OVERWRITE_MANUAL_EDITS = False
 
-API_URL = "https://models.github.ai/inference/chat/completions"
+# Both providers speak the same OpenAI-compatible chat/completions shape, so
+# switching is a matter of URL, key and model. The provider is chosen by
+# whichever key is present, or forced with TRANSLATE_PROVIDER.
+PROVIDERS = {
+    # Credit-based. No per-request output cap, and not tied to anyone's Copilot
+    # entitlement, which is why it is tried first.
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "openai/gpt-4.1-mini",
+        "keys": ("OPENROUTER_API_KEY",),
+    },
+    # Free, but access is a Copilot entitlement: a repository GITHUB_TOKEN
+    # carries the ORGANISATION's entitlement, so an org with no Copilot plan
+    # gets 403 regardless of workflow permissions. MODELS_TOKEN (a personal
+    # access token with models:read) is the way around that.
+    "github": {
+        "url": "https://models.github.ai/inference/chat/completions",
+        "model": "openai/gpt-4.1-mini",
+        "keys": ("MODELS_TOKEN", "GITHUB_TOKEN"),
+    },
+}
 
-# Low rate-limit tier: 150 requests/day vs 50 for high tier. Tagged multilingual.
-# Verify against https://models.github.ai/catalog/models before changing.
-MODEL = "openai/gpt-4.1-mini"
+
+def resolve_provider() -> tuple[str, dict, str]:
+    """Pick a provider from the environment. Returns (name, config, key)."""
+    forced = os.environ.get("TRANSLATE_PROVIDER")
+    if forced:
+        if forced not in PROVIDERS:
+            raise SystemExit(
+                f"TRANSLATE_PROVIDER={forced!r} is not one of "
+                f"{', '.join(PROVIDERS)}"
+            )
+        candidates = [(forced, PROVIDERS[forced])]
+    else:
+        candidates = list(PROVIDERS.items())
+
+    override = os.environ.get("TRANSLATE_MODEL")
+    for name, config in candidates:
+        for variable in config["keys"]:
+            key = os.environ.get(variable)
+            if key:
+                if override:
+                    config = {**config, "model": override}
+                return name, config, key
+
+    name, config = candidates[0]
+    if override:
+        config = {**config, "model": override}
+    return name, config, ""
+
 
 # GitHub Models caps output at 4000 tokens per request on the Copilot Free/Pro
-# tier, well below the model's own 32k ceiling. That cap -- not the model -- is
-# why we chunk. ~80 strings lands around 1800 output tokens, leaving margin for
-# languages that render longer than English.
+# tier, far below the model's own ceiling. OpenRouter has no such cap, but the
+# chunk size is kept for both: ~80 strings lands near 1800 output tokens, which
+# also bounds how much work a single malformed response can cost.
 CHUNK_SIZE = 80
 
-# 15 requests/minute on the low tier.
+# GitHub Models allows 15 requests/minute on the low tier. Harmless elsewhere.
 MIN_SECONDS_BETWEEN_REQUESTS = 4.5
 
 LANGUAGES = {
@@ -267,32 +316,32 @@ class ApiError(RuntimeError):
         if self.status in (401, 403):
             return (
                 "The token was rejected for GitHub Models.\n"
-                "  In Actions: 'models: read' on the workflow is necessary but\n"
-                "  NOT sufficient. Models must also be enabled for the org, at\n"
-                "  Organization Settings > Code, planning, and automation >\n"
-                "  Models > Development > 'Models in your organization'.\n"
-                "  (It is not under Copilot policies.) If the org belongs to an\n"
-                "  enterprise, an enterprise owner has to enable it there first.\n"
-                "  A repository GITHUB_TOKEN inherits the ORGANISATION's access,\n"
-                "  not the access of whoever triggered the run, so a personal\n"
-                "  token that works locally proves nothing about CI.\n"
-                "  Locally: export a PAT carrying the models:read scope."
+                "  Access to GitHub Models is a Copilot entitlement. A\n"
+                "  repository GITHUB_TOKEN carries the ORGANISATION's\n"
+                "  entitlement, not that of whoever triggered the run, so an\n"
+                "  org with no Copilot plan gets 403 however the workflow\n"
+                "  permissions are set. That is why this repository uses a\n"
+                "  MODELS_TOKEN secret instead.\n"
+                "  Check that MODELS_TOKEN is set, unexpired, and carries the\n"
+                "  models:read scope. Locally, export it in your shell."
             )
         if self.status == 404:
             return (
-                f"Model {MODEL!r} was not found. Check it against "
-                "https://models.github.ai/catalog/models."
+                f"Model not found at this provider. Check the id against the "
+                "provider's model catalog."
             )
         if self.status >= 500:
             return "The models endpoint failed. Re-run the workflow."
         return ""
 
 
-def call_model(token: str, language: str, batch: dict[str, str]) -> dict[str, str]:
+def call_model(
+    api: dict, token: str, language: str, batch: dict[str, str]
+) -> dict[str, str]:
     """Translate one batch of strings. Raises on transport or parse failure."""
     body = json.dumps(
         {
-            "model": MODEL,
+            "model": api["model"],
             "temperature": 0,
             "response_format": {"type": "json_object"},
             "messages": [
@@ -313,7 +362,7 @@ def call_model(token: str, language: str, batch: dict[str, str]) -> dict[str, st
     ).encode("utf-8")
 
     request = urllib.request.Request(
-        API_URL,
+        api["url"],
         data=body,
         headers={
             "Authorization": f"Bearer {token}",
@@ -379,6 +428,7 @@ def validate(
 
 
 def translate_language(
+    api: dict,
     token: str,
     code: str,
     language: str,
@@ -406,7 +456,7 @@ def translate_language(
         throttle[0] = time.monotonic()
 
         try:
-            response = call_model(token, language, numbered)
+            response = call_model(api, token, language, numbered)
         except ApiError as err:
             if err.status == 429:
                 # Daily or per-minute budget exhausted. Keep what we have: a
@@ -431,7 +481,7 @@ def translate_language(
             time.sleep(MIN_SECONDS_BETWEEN_REQUESTS)
             throttle[0] = time.monotonic()
             try:
-                retry = call_model(token, language, {"0": todo[key]})
+                retry = call_model(api, token, language, {"0": todo[key]})
             except ApiError:
                 rejected[key] = reason
                 continue
@@ -491,15 +541,25 @@ def main() -> int:
     else:
         codes = list(LANGUAGES)
 
-    token = os.environ.get("GITHUB_TOKEN", "")
+    # MODELS_TOKEN first: GitHub Models access is a Copilot entitlement, and a
+    # repository GITHUB_TOKEN carries the organisation's entitlement. An org
+    # without a Copilot plan gets 403 no matter what the workflow permissions
+    # say, so a personal token has to stand in.
+    provider, api, token = resolve_provider()
     if not token and not args.dry_run:
         print(
-            "GITHUB_TOKEN is not set. In Actions, add 'models: read' to the "
-            "workflow permissions block. Locally, export a PAT with the "
-            "models:read scope.",
+            "No API key found. Set one of: "
+            + ", ".join(v for c in PROVIDERS.values() for v in c["keys"])
+            + ".\n"
+            "GITHUB_TOKEN only works when the repository's organisation has a "
+            "Copilot plan; otherwise use OPENROUTER_API_KEY or a MODELS_TOKEN "
+            "personal access token with the models:read scope.",
             file=sys.stderr,
         )
         return 1
+
+    if not args.dry_run:
+        print(f"provider: {provider} ({api['model']})")
 
     state: dict[str, dict[str, dict[str, str]]] = {}
     if STATE_FILE.exists():
@@ -546,7 +606,7 @@ def main() -> int:
 
         print(f"{code} ({language}): translating {len(todo)} strings")
         accepted, rejected = (
-            translate_language(token, code, language, todo, throttle)
+            translate_language(api, token, code, language, todo, throttle)
             if todo
             else ({}, {})
         )

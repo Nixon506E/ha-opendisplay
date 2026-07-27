@@ -21,8 +21,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Lets the built-in GITHUB_TOKEN call GitHub Models. No API key, no billing.
-  models: read
+  # No 'models: read' here on purpose. GitHub Models access is a Copilot
+  # entitlement, and GITHUB_TOKEN carries the ORGANISATION's entitlement rather
+  # than the triggering user's. This org has no Copilot plan, so the built-in
+  # token gets 403 whatever the permissions say. Translation therefore
+  # authenticates with the MODELS_TOKEN secret; GITHUB_TOKEN still does the
+  # git and pull request work below.
 
 jobs:
   translate:
@@ -42,7 +46,12 @@ jobs:
       - name: Translate missing strings
         id: translate
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Whichever of these is set decides the provider. OPENROUTER_API_KEY
+          # is preferred; MODELS_TOKEN is a personal access token with
+          # models:read, needed because the org has no Copilot plan and the
+          # built-in GITHUB_TOKEN therefore cannot reach GitHub Models.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
         run: |
           python3 scripts/translate.py \
             ${{ inputs.languages && format('--languages {0}', inputs.languages) || '' }}
@@ -73,8 +82,8 @@ jobs:
           title: 'chore: update translations'
           body: |
             `translations/en.json` changed, so the strings that were missing from
-            each language have been machine-translated using GitHub Models.
-            Existing translations were not re-sent to the model.
+            each language have been machine-translated. Existing translations
+            were not re-sent to the model.
 
             ## Changes
 
