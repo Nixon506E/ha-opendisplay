@@ -127,6 +127,22 @@ def _dither_value(value: Any) -> DitherMode:
     return _str_to_int_enum(DitherMode)(value)
 
 
+def _valid_melody(value: str) -> str:
+    """Validate a compact melody string via the py-opendisplay parser.
+
+    Parses ``value`` with default tempo/duration settings purely to check token
+    syntax, converting the parser's ``ValueError`` into ``vol.Invalid`` (carrying
+    the offending token's position and text). Tempo-dependent duration overflow
+    cannot be caught here because ``tempo`` is a sibling field; the handler
+    re-parses with the real values and re-raises as ``invalid_melody``.
+    """
+    try:
+        BuzzerActivateConfig.melody(value)
+    except ValueError as err:
+        raise vol.Invalid(str(err)) from err
+    return value
+
+
 def _refresh_type_value(value: Any) -> RefreshMode:
     """Accept names ("full"/"fast"/"partial") and legacy numeric values.
 
@@ -246,6 +262,18 @@ SCHEMA_WRITE_NFC = vol.Schema(
         ),
         vol.Required(ATTR_CONTENT): cv.string,
         vol.Optional(ATTR_MIME_TYPE): cv.string,
+    }
+)
+
+SCHEMA_PLAY_MELODY = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3)),
+        vol.Required("notes"): vol.All(cv.string, _valid_melody),
+        vol.Optional("tempo", default=120): vol.All(vol.Coerce(int), vol.Range(min=40, max=400)),
+        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+        vol.Optional("default_note_ms", default=200): vol.All(vol.Coerce(int), vol.Range(min=5, max=1275)),
+        vol.Optional("default_length"): vol.All(vol.Coerce(int), vol.In([1, 2, 4, 8, 16, 32])),
     }
 )
 
@@ -1108,6 +1136,38 @@ async def _async_write_nfc(call: ServiceCall) -> None:
     await _async_connect_and_run(call.hass, entry, _nfc)
 
 
+async def _async_play_melody(call: ServiceCall) -> None:
+    """Handle the play_melody service call."""
+    entry = _get_entry_for_device(call)
+    if not entry.runtime_data.device_config.buzzers:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="no_buzzers",
+            translation_placeholders={"device_id": call.data[ATTR_DEVICE_ID]},
+        )
+    _raise_if_sleeping(entry, call.data[ATTR_DEVICE_ID])
+    try:
+        buzz_config = BuzzerActivateConfig.melody(
+            call.data["notes"],
+            tempo=call.data["tempo"],
+            repeats=call.data["repeats"],
+            default_ms=call.data["default_note_ms"],
+            default_length=call.data.get("default_length"),
+        )
+    except ValueError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_melody",
+            translation_placeholders={"error": str(err)},
+        ) from err
+    instance: int = call.data["instance"]
+
+    async def _buzz(device: OpenDisplayDevice) -> None:
+        await device.activate_buzzer(instance, buzz_config)
+
+    await _async_connect_and_run(call.hass, entry, _buzz)
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register OpenDisplay services."""
@@ -1128,3 +1188,4 @@ def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED)
     hass.services.async_register(DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER)
     hass.services.async_register(DOMAIN, "write_nfc", _async_write_nfc, schema=SCHEMA_WRITE_NFC)
+    hass.services.async_register(DOMAIN, "play_melody", _async_play_melody, schema=SCHEMA_PLAY_MELODY)
