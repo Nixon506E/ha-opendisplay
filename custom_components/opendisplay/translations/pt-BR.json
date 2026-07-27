@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "O dispositivo `{device_id}` não é um dispositivo OpenDisplay válido."
     },
+    "invalid_melody": {
+      "message": "Melodia inválida: {error}"
+    },
     "media_download_error": {
       "message": "Falha ao baixar mídia: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Ativa um tom de buzina em um dispositivo OpenDisplay.",
+      "description": "Dispara um tom no buzzer de um dispositivo OpenDisplay. Para melodias com múltiplas notas, veja Tocar melodia no buzzer.",
       "fields": {
         "device_id": {
           "description": "O dispositivo OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Desenhar imagem personalizada"
+    },
+    "play_melody": {
+      "description": "Toca uma melodia com múltiplas notas no buzzer de um dispositivo OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Fração da nota (1/2/4/8/16/32) usada no tempo atual para notas sem marcador de duração; substitui a duração padrão da nota quando definida.",
+          "name": "Duração padrão"
+        },
+        "default_note_ms": {
+          "description": "Duração em milissegundos para notas sem marcador de duração, quando nenhuma duração padrão é definida (5-1275).",
+          "name": "Duração padrão da nota"
+        },
+        "device_id": {
+          "description": "O dispositivo OpenDisplay.",
+          "name": "Dispositivo"
+        },
+        "instance": {
+          "description": "Índice da instância do buzzer (base 0).",
+          "name": "Instância do buzzer"
+        },
+        "notes": {
+          "description": "Melodia compacta: tokens separados por espaço ou vírgula, cada um `pitch[duration]`. Pitch é o nome da nota (`A4`, `C#5`, sustenidos e quartos de tom como `A4+` permitidos), `R` para pausa, ou um índice bruto 0-255. Duração é opcional: `:200` para milissegundos absolutos, ou `/4` (semínima), `/4.` (pontuada), `/8t` (tríade) para frações relativas ao tempo; omitido usa a duração padrão ou duração padrão da nota.",
+          "name": "Notas"
+        },
+        "repeats": {
+          "description": "Número de vezes para repetir a melodia inteira (1-255).",
+          "name": "Repetições"
+        },
+        "tempo": {
+          "description": "Batidas por minuto; afeta apenas durações `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Tocar melodia no buzzer"
     },
     "upload_image": {
       "description": "Envia uma imagem para um dispositivo OpenDisplay.",

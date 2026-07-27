@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "Il dispositivo `{device_id}` non è un dispositivo OpenDisplay valido."
     },
+    "invalid_melody": {
+      "message": "Melodia non valida: {error}"
+    },
     "media_download_error": {
       "message": "Download del media fallito: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Attiva un tono buzzer su un dispositivo OpenDisplay.",
+      "description": "Attiva un tono del buzzer su un dispositivo OpenDisplay. Per melodie multi-nota, vedere Riprodurre melodia del buzzer.",
       "fields": {
         "device_id": {
           "description": "Il dispositivo OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Disegna immagine personalizzata"
+    },
+    "play_melody": {
+      "description": "Riproduce una melodia multi-nota sul buzzer di un dispositivo OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Frazione della nota (1/2/4/8/16/32) usata al tempo corrente per note senza indicatore di durata; sovrascrive la durata predefinita della nota se impostata.",
+          "name": "Lunghezza predefinita"
+        },
+        "default_note_ms": {
+          "description": "Durata in millisecondi per note senza indicatore di durata, quando non è impostata una lunghezza predefinita (5-1275).",
+          "name": "Durata predefinita della nota"
+        },
+        "device_id": {
+          "description": "Il dispositivo OpenDisplay.",
+          "name": "Dispositivo"
+        },
+        "instance": {
+          "description": "Indice dell'istanza del buzzer (basato su 0).",
+          "name": "Istanza del buzzer"
+        },
+        "notes": {
+          "description": "Melodia compatta: token separati da spazi o virgole, ciascuno `pitch[duration]`. Pitch è un nome di nota (`A4`, `C#5`, bemolli e quarti di tono come `A4+` ammessi), `R` per una pausa, o un indice grezzo 0-255. La durata è opzionale: `:200` per millisecondi assoluti, o `/4` (quarta), `/4.` (puntata), `/8t` (terzina) per frazioni relative al tempo; se omessa si usa la lunghezza predefinita o la durata predefinita della nota.",
+          "name": "Note"
+        },
+        "repeats": {
+          "description": "Numero di volte per ripetere l'intera melodia (1-255).",
+          "name": "Ripetizioni"
+        },
+        "tempo": {
+          "description": "Battiti per minuto; influenza solo le durate `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Riprodurre melodia del buzzer"
     },
     "upload_image": {
       "description": "Carica un'immagine su un dispositivo OpenDisplay.",
