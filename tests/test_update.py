@@ -26,3 +26,19 @@ from custom_components.opendisplay.update import _format_firmware_version
 )
 def test_format_firmware_version(major, minor, expected):
     assert _format_firmware_version(major, minor) == expected
+
+
+@pytest.mark.parametrize(
+    ("major", "minor", "patch", "expected"),
+    [
+        # patch available (py-opendisplay parses the trailing patch byte):
+        # three-part form so a device on 2.25.1 matches its release tag.
+        (2, 25, 1, "2.25.1"),
+        (2, 25, 0, "2.25.0"),
+        # patch unavailable (older py-opendisplay or cached firmware dict):
+        # keep the two-part form; AwesomeVersion treats 2.25 == 2.25.0.
+        (2, 25, None, "2.25"),
+    ],
+)
+def test_format_firmware_version_with_patch(major, minor, patch, expected):
+    assert _format_firmware_version(major, minor, patch) == expected

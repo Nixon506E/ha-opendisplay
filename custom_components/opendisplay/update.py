@@ -62,15 +62,23 @@ _GITHUB_HEADERS = {"Accept": "application/vnd.github+json"}
 _OTA_INSTALL_IC_TYPES = {ICType.EFR32BG22}
 
 
-def _format_firmware_version(major: int, minor: int) -> str:
+def _format_firmware_version(major: int, minor: int, patch: int | None = None) -> str:
     """Format firmware version to match GitHub tag convention.
 
     Firmware parses its own BUILD_VERSION string with a plain int conversion
     (e.g. `atoi` on the substring after the dot), so the minor byte already
     equals the literal digits in the tag_name (1.6 → 6, 1.71 → 71, 2.20 → 20).
     No scaling is needed.
+
+    ``patch`` is None when py-opendisplay (or a cached firmware dict)
+    predates the trailing patch byte of the version response; the two-part
+    form keeps the old behavior. With patch available, the three-part form
+    lets a device on a patch release (e.g. 2.25.1) match its tag instead of
+    reporting a phantom pending update forever.
     """
-    return f"{major}.{minor}"
+    if patch is None:
+        return f"{major}.{minor}"
+    return f"{major}.{minor}.{patch}"
 
 
 _FIRMWARE_DESCRIPTION = UpdateEntityDescription(
@@ -102,7 +110,9 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         """Initialize the entity."""
         super().__init__(coordinator, _FIRMWARE_DESCRIPTION)
         fw = entry.runtime_data.firmware
-        self._attr_installed_version = _format_firmware_version(fw["major"], fw["minor"])
+        self._attr_installed_version = _format_firmware_version(
+            fw["major"], fw["minor"], fw.get("patch")
+        )
         ic_type = entry.runtime_data.device_config.system.ic_type
         self._ic_type = ic_type
         self._firmware_repo = firmware_release_repo(ic_type)
