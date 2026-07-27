@@ -184,7 +184,7 @@
       "message": "Failed to upload to the display: {error}"
     },
     "url_not_allowed": {
-      "message": "URL `{url}` is not allowed. Add it to `allowlist_external_urls` in your configuration.yaml."
+      "message": "URL `{url}` is not allowed. Add it to `allowlist_external_urls` in configuration.yaml."
     }
   },
   "selector": {
