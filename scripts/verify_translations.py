@@ -23,7 +23,7 @@ SOURCE_FILE = TRANSLATIONS_DIR / "en.json"
 # Reuse the flattening and placeholder rules rather than reimplementing them,
 # so the two scripts can never disagree about what "valid" means.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from translate import PLACEHOLDER_RE, flatten  # noqa: E402
+from translate import PLACEHOLDER_RE, flatten, show  # noqa: E402
 
 # Second-person pronouns that indicate the model addressed the user directly
 # instead of using the impersonal phrasing rule 6 asks for. These are warnings,
@@ -64,7 +64,7 @@ def main() -> int:
             continue
 
         for key in sorted(set(data) - set(source)):
-            errors.append(f"{path.name}: key '{key}' does not exist in en.json")
+            errors.append(f"{path.name}: key '{show(key)}' does not exist in en.json")
 
         for key, translation in sorted(data.items()):
             english = source.get(key)
@@ -72,14 +72,14 @@ def main() -> int:
                 continue
 
             if not translation.strip():
-                errors.append(f"{path.name}: '{key}' is empty")
+                errors.append(f"{path.name}: '{show(key)}' is empty")
                 continue
 
             expected = sorted(PLACEHOLDER_RE.findall(english))
             actual = sorted(PLACEHOLDER_RE.findall(translation))
             if expected != actual:
                 errors.append(
-                    f"{path.name}: '{key}' placeholder mismatch: "
+                    f"{path.name}: '{show(key)}' placeholder mismatch: "
                     f"expected {expected}, got {actual}"
                 )
 
@@ -88,7 +88,7 @@ def main() -> int:
                 match = re.search(pattern[0], translation, pattern[1])
                 if match:
                     warnings.append(
-                        f"{path.name}: '{key}' may address the user directly "
+                        f"{path.name}: '{show(key)}' may address the user directly "
                         f"({match.group(0)!r}): {translation}"
                     )
 

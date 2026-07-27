@@ -149,17 +149,21 @@ English source. Preserve trailing punctuation as-is.
 """
 
 
+# Path separator for flattened keys. NOT a dot: Home Assistant select entities
+# use their option values as translation keys, and those legitimately contain
+# dots, e.g. entity.select.subghzchannel.state."100 - 864.000 Mhz (Europe, etc)".
+# A dot separator silently mis-nests those. NUL cannot appear in a JSON key that
+# came from a real translation file, so it round-trips safely.
+SEP = "\x00"
+
+
 def flatten(obj: dict, prefix: str = "") -> dict[str, str]:
-    """Flatten nested translation data into dotted paths."""
+    """Flatten nested translation data into separator-joined paths."""
     flat: dict[str, str] = {}
     for key, value in obj.items():
-        if "." in key:
-            raise ValueError(
-                f"Key {key!r} at {prefix or '<root>'} contains a dot, which "
-                "would corrupt dotted-path flattening. Change the flattening "
-                "separator before adding keys like this."
-            )
-        path = f"{prefix}.{key}" if prefix else key
+        if SEP in key:
+            raise ValueError(f"Key {key!r} at {prefix or '<root>'} contains NUL")
+        path = f"{prefix}{SEP}{key}" if prefix else key
         if isinstance(value, dict):
             flat.update(flatten(value, path))
         else:
@@ -168,15 +172,20 @@ def flatten(obj: dict, prefix: str = "") -> dict[str, str]:
 
 
 def unflatten(flat: dict[str, str]) -> dict:
-    """Rebuild nested translation data from dotted paths."""
+    """Rebuild nested translation data from flattened paths."""
     nested: dict = {}
     for path, value in sorted(flat.items()):
-        parts = path.split(".")
+        parts = path.split(SEP)
         cursor = nested
         for part in parts[:-1]:
             cursor = cursor.setdefault(part, {})
         cursor[parts[-1]] = value
     return nested
+
+
+def show(path: str) -> str:
+    """Human-readable form of a flattened path, for logs and PR summaries."""
+    return path.replace(SEP, ".")
 
 
 def fingerprint(text: str) -> str:
@@ -337,6 +346,10 @@ def translate_language(
 
     for index, chunk in enumerate(chunks, start=1):
         batch = {key: todo[key] for key in chunk}
+        # The model never sees the real paths: they carry a NUL separator and
+        # would waste output tokens round-tripping. Send 1..n and map back.
+        numbered = {str(n): todo[key] for n, key in enumerate(chunk)}
+        by_number = {str(n): key for n, key in enumerate(chunk)}
         print(f"  [{code}] chunk {index}/{len(chunks)} ({len(batch)} strings)")
 
         elapsed = time.monotonic() - throttle[0]
@@ -345,7 +358,7 @@ def translate_language(
         throttle[0] = time.monotonic()
 
         try:
-            response = call_model(token, language, batch)
+            response = call_model(token, language, numbered)
         except urllib.error.HTTPError as err:
             if err.code == 429:
                 # Daily or per-minute budget exhausted. Keep what we have: a
@@ -356,20 +369,26 @@ def translate_language(
                 return accepted, rejected
             raise
 
-        good, bad = validate(batch, response)
+        translated = {
+            by_number[n]: value
+            for n, value in response.items()
+            if n in by_number and isinstance(value, str)
+        }
+        good, bad = validate(batch, translated)
         accepted.update(good)
 
         # One retry, isolated, in case a neighbouring string derailed the batch.
         for key, reason in bad.items():
-            print(f"  [{code}] retrying {key} ({reason})")
+            print(f"  [{code}] retrying {show(key)} ({reason})")
             time.sleep(MIN_SECONDS_BETWEEN_REQUESTS)
             throttle[0] = time.monotonic()
             try:
-                retry = call_model(token, language, {key: todo[key]})
+                retry = call_model(token, language, {"0": todo[key]})
             except urllib.error.HTTPError:
                 rejected[key] = reason
                 continue
-            good_retry, bad_retry = validate({key: todo[key]}, retry)
+            retried = {key: retry["0"]} if isinstance(retry.get("0"), str) else {}
+            good_retry, bad_retry = validate({key: todo[key]}, retried)
             accepted.update(good_retry)
             rejected.update(bad_retry)
 
@@ -458,7 +477,7 @@ def main() -> int:
 
         for key in needs_review:
             review.append(
-                f"- **{code}** `{key}`: English source changed, but the "
+                f"- **{code}** `{show(key)}`: English source changed, but the "
                 f"translation was edited by hand and was left as-is."
             )
 
@@ -507,7 +526,7 @@ def main() -> int:
             line += f", {len(rejected)} skipped"
         summary.append(line)
         for key, reason in sorted(rejected.items()):
-            summary.append(f"  - skipped `{key}`: {reason}")
+            summary.append(f"  - skipped `{show(key)}`: {reason}")
 
     if args.dry_run:
         if review:
