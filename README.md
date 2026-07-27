@@ -109,15 +109,48 @@ plainly wrong phrasing. Corrections are very welcome, and they stick:
   edit. Once you have corrected a string it is treated as yours. If the English
   source later changes, the workflow flags the string for review rather than
   replacing your version.
-- Only strings that are missing, or whose English source was reworded, are ever
-  sent to a model.
 
-To add a language, add its code and name to `LANGUAGES` in
-`scripts/translate.py` and open a pull request; the workflow fills in the file.
+One style note if you are correcting a string: translations deliberately avoid
+the familiar/polite distinction (German du/Sie, French tu/vous, and so on) by
+using impersonal phrasing, such as infinitives for instructions. Please keep
+that style.
 
-Translations deliberately avoid the familiar/polite distinction (German du/Sie,
-French tu/vous, and so on) by using impersonal phrasing such as infinitives for
-instructions. Please keep that style when correcting a string.
+Missing a language? Open an issue and we will add it.
+
+<details>
+<summary>Maintaining the translations (developer notes)</summary>
+
+`scripts/translate.py` fills in strings that are missing from a language, or
+whose English source was reworded since it was last translated. Nothing else is
+ever sent to a model. `.github/workflows/translate.yml` runs it when
+`translations/en.json` changes on a release branch and opens a pull request.
+
+**Adding a language.** Add its code and name to `LANGUAGES` in
+`scripts/translate.py`. The next run fills in the file.
+
+**Providers.** Any OpenAI-compatible chat endpoint works. OpenRouter and GitHub
+Models are configured out of the box in `PROVIDERS`, selected by whichever API
+key is present:
+
+| Variable | Provider | Notes |
+|---|---|---|
+| `OPENROUTER_API_KEY` | OpenRouter | Preferred. No output-token cap. |
+| `MODELS_TOKEN` | GitHub Models | Personal access token with `models:read`. |
+| `GITHUB_TOKEN` | GitHub Models | Only works if the repo's org has a Copilot plan. |
+
+`TRANSLATE_PROVIDER` and `TRANSLATE_MODEL` override the choice for one run:
+
+```bash
+OPENROUTER_API_KEY=... TRANSLATE_MODEL=google/gemini-2.5-flash-lite \
+  python3 scripts/translate.py --languages de --dry-run
+```
+
+**Checking output.** `scripts/verify_translations.py` re-checks the files on
+disk and fails on placeholder mismatches, empty values, or keys that no longer
+exist in `en.json`. It also warns when a translation addresses the reader
+directly, which the impersonal style above is meant to avoid.
+
+</details>
 
 ## Contributing
 - Feature requests and bug reports are welcome! Please open an issue on GitHub
