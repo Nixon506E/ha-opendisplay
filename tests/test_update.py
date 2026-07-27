@@ -9,6 +9,7 @@ so the minor byte always equals the literal tag digits (2.20 -> 20, 1.71 -> 71,
 """
 
 import pytest
+from awesomeversion import AwesomeVersion
 
 from custom_components.opendisplay.update import _format_firmware_version
 
@@ -35,10 +36,41 @@ def test_format_firmware_version(major, minor, expected):
         # three-part form so a device on 2.25.1 matches its release tag.
         (2, 25, 1, "2.25.1"),
         (2, 25, 0, "2.25.0"),
-        # patch unavailable (older py-opendisplay or cached firmware dict):
-        # keep the two-part form; AwesomeVersion treats 2.25 == 2.25.0.
+        # patch unavailable (cached firmware dict written before the patch byte
+        # was parsed): fall back to the two-part form. This is transient — it
+        # still compares older than a patch release, so the device shows a
+        # pending update until it is next interrogated. `.0` would not help
+        # either, since 2.25.0 < 2.25.1 too.
         (2, 25, None, "2.25"),
     ],
 )
 def test_format_firmware_version_with_patch(major, minor, patch, expected):
     assert _format_firmware_version(major, minor, patch) == expected
+
+
+@pytest.mark.parametrize(
+    ("installed", "latest_tag", "expect_update"),
+    [
+        # The regression this exists for (issue #62): newest firmware against
+        # the newest release must report no update.
+        ((2, 25, 1), "2.25.1", False),
+        ((3, 0, 0), "3.0.0", False),
+        # A genuinely newer release is still offered.
+        ((2, 25, 0), "2.25.1", True),
+        ((2, 23, 0), "2.25.1", True),
+        # Legacy two-part release tags: firmware reporting patch 0 formats as
+        # x.y.0, which AwesomeVersion ranks equal to the bare "x.y" tag, so
+        # devices on pre-SemVer releases do not gain a phantom update.
+        ((2, 23, 0), "2.23", False),
+        ((1, 71, 0), "1.71", False),
+    ],
+)
+def test_update_offered_only_when_genuinely_newer(installed, latest_tag, expect_update):
+    """installed_version and latest_version must be comparable like-for-like.
+
+    ``latest_version`` is the GitHub tag verbatim, so a two-part installed
+    string ranks below a patch release of the same minor — which is what made
+    an update look permanently pending.
+    """
+    formatted = _format_firmware_version(*installed)
+    assert (AwesomeVersion(latest_tag) > AwesomeVersion(formatted)) is expect_update
