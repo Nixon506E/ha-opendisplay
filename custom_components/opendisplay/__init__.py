@@ -274,6 +274,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
             landing_url = cached.landing_url
             from_cache = True
 
+    # Imported here rather than at module scope because update.py imports from
+    # this module — a top-level import would be circular. Sharing the formatter
+    # keeps the device registry and the update entity from disagreeing about the
+    # version, which is what makes an update appear permanently pending.
+    from .update import _format_firmware_version
+
     profile = SleepProfile.from_entry(entry, device_config)
     coordinator = OpenDisplayCoordinator(hass, address)
 
@@ -295,7 +301,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
         connections={(CONNECTION_BLUETOOTH, address)},
         manufacturer=manufacturer.manufacturer_name,
         model=f"{size} {color_scheme}",
-        sw_version=f"{fw['major']}.{fw['minor']}",
+        sw_version=_format_firmware_version(fw["major"], fw["minor"], fw.get("patch")),
         hw_version=f"{manufacturer.board_type_name or manufacturer.board_type}"
         if is_flex
         else None,
