@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "Urządzenie `{device_id}` nie jest prawidłowym urządzeniem OpenDisplay."
     },
+    "invalid_melody": {
+      "message": "Nieprawidłowa melodia: {error}"
+    },
     "media_download_error": {
       "message": "Nie udało się pobrać mediów: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Wywołuje dźwięk buzzera na urządzeniu OpenDisplay.",
+      "description": "Wyzwala dźwięk buzzera na urządzeniu OpenDisplay. Dla melodii wielodźwiękowych zobacz Odtwórz melodię buzzera.",
       "fields": {
         "device_id": {
           "description": "Urządzenie OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Narysuj niestandardowy obraz"
+    },
+    "play_melody": {
+      "description": "Odtwarza melodię wielodźwiękową na buzzerze urządzenia OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Ułamek nuty (1/2/4/8/16/32) używany przy aktualnym tempie dla nut bez oznaczenia długości; nadpisuje domyślną długość nuty, gdy jest ustawiony.",
+          "name": "Domyślna długość"
+        },
+        "default_note_ms": {
+          "description": "Czas trwania w milisekundach dla nut bez oznaczenia długości, gdy nie jest ustawiona domyślna długość (5-1275).",
+          "name": "Domyślna długość nuty"
+        },
+        "device_id": {
+          "description": "Urządzenie OpenDisplay.",
+          "name": "Urządzenie"
+        },
+        "instance": {
+          "description": "Indeks instancji buzzera (liczony od 0).",
+          "name": "Instancja buzzera"
+        },
+        "notes": {
+          "description": "Kompaktowa melodia: tokeny oddzielone spacjami/przecinkami, każdy `pitch[duration]`. Pitch to nazwa nuty (`A4`, `C#5`, dozwolone bemole i ćwierćtony jak `A4+`), `R` dla pauzy lub surowy indeks 0-255. Długość jest opcjonalna: `:200` dla milisekund bezwzględnych, lub `/4` (ćwierć), `/4.` (kropkowana), `/8t` (tryplet) dla ułamków nut względnych do tempa; pominięcie używa domyślnej długości lub domyślnej długości nuty.",
+          "name": "Nuty"
+        },
+        "repeats": {
+          "description": "Liczba powtórzeń całej melodii (1-255).",
+          "name": "Powtórzenia"
+        },
+        "tempo": {
+          "description": "Uderzenia na minutę; wpływa tylko na długości `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Odtwórz melodię buzzera"
     },
     "upload_image": {
       "description": "Przesyła obraz do urządzenia OpenDisplay.",

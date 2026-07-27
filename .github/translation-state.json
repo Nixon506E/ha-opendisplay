@@ -164,6 +164,10 @@
       "out": "2ede118246db",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "b18c49fec1f0",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "f737579995ff",
       "src": "5852129dd920"
@@ -361,8 +365,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "37b20ddf2753",
-      "src": "1898784614cb"
+      "out": "b5b326f8d88a",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "082aa38abb33",
@@ -607,6 +611,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "e258d0bbfad9",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "fd9d47ff713d",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "64508ad86be6",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "e1ae39dca361",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "0c82621983e4",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "87152158b4bb",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "082aa38abb33",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "e1363fae54dc",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "6a0d569c11af",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "7a641c371be6",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "7534b7cc54f2",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "becb23446287",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "e2a7a66a0852",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "57db92bda9a5",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "9c44f626c80d",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "e826018198ac",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "d0a115fc3148",
@@ -890,6 +958,10 @@
       "out": "9c06ec0618e4",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "8dd534aebdbd",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "55b588a0733a",
       "src": "5852129dd920"
@@ -1087,8 +1159,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "b67a5314e9bc",
-      "src": "1898784614cb"
+      "out": "1d5f8424d073",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "c9d3248db546",
@@ -1333,6 +1405,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "8d49c980745b",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "4dcdf9101447",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "81ef7159d5e1",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "8e16c84936bb",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "49e065d020e2",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "dc76ce5018d8",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "c9d3248db546",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "b32db78620d9",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "adc1a6c3c436",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "9280d2bb03e2",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "ceea00044933",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8fbac33c853b",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "aeeb9758cce5",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "b93838e6408f",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "7aabf4ab7667",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "e52058bee04f",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "c2473cdf6eaa",
@@ -1616,6 +1752,10 @@
       "out": "bd59236488fd",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "7c63e0b2c5a9",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "afbf6cb62c7e",
       "src": "5852129dd920"
@@ -1813,8 +1953,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "cc0fc0af56e3",
-      "src": "1898784614cb"
+      "out": "dac517824151",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "1abb38711bf0",
@@ -2059,6 +2199,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "9d9d1493716c",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "604e6673a50c",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "04e040c17902",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "3f8319485cee",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "957150b5d53d",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "f8e7d504545f",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "1abb38711bf0",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "0788fe6d8567",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "b9b678933509",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "c3a4df0efcb5",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8a6172e21a87",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "8bcc44b286be",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "f79916caa78b",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "26ba29cd9a9d",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "8b14fbadae9b",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "5c90f31d0b7a",
@@ -2342,6 +2546,10 @@
       "out": "4bf835acb87c",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "ddda56d3ac4b",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "7d55b66d49f3",
       "src": "5852129dd920"
@@ -2539,8 +2747,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "cb350aff2b76",
-      "src": "1898784614cb"
+      "out": "81b62eb880be",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "70b3a453ffac",
@@ -2785,6 +2993,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "09b119dee48e",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "f54a2efa0f18",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "5f510821851a",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "0db9da63fc0b",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "f79bfec9a7e8",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "717018acf6a8",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "ed8020c3a30d",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "0944613acb42",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "b8930880c4a9",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "78702905a0c4",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "98c43029bb0c",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8a7525b1492f",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "dddf668a7e68",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "007319cdfdac",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "b0e582322f2e",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "dcdcac5a7676",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "175050ee7e69",
@@ -3068,6 +3340,10 @@
       "out": "9605015e8c92",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "d5e380faa693",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "6e77cf8e55ee",
       "src": "5852129dd920"
@@ -3265,8 +3541,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "a413ecb3c558",
-      "src": "1898784614cb"
+      "out": "8a5340b5bf9b",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "9f827f83022b",
@@ -3511,6 +3787,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "b9f06b92149e",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "dd5e29a2c4a8",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "aa931649e54a",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "540c395173a3",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "0d56f681bad8",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "ae673ac67fc8",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "9f827f83022b",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "23dfb767eb7f",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "2c0586b39b20",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "f077577f9b66",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "d8da2c49df39",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "b986cda44f41",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "d4e1d6b072f6",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "06c20e422008",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "58c5422f518c",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "2f57f84ec342",
@@ -3794,6 +4134,10 @@
       "out": "f590c38ce79e",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "03810b676400",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "8c3fa9a46030",
       "src": "5852129dd920"
@@ -3991,8 +4335,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "788a623c5546",
-      "src": "1898784614cb"
+      "out": "e612f20a0ae6",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "56d438ed7456",
@@ -4237,6 +4581,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "983cc0c2b23d",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "b9e0a7184c02",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "60a83c6739ff",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "b21f1c5fa569",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "f8041f3726d5",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "e91232780fe6",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "56d438ed7456",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "0e0a54c681e2",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "7d62d58803ca",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "f4bfea96693c",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "b1124fa34a25",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8fbac33c853b",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "0fcb0b23587b",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "2f873dc8d821",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "2a1f1ede5dda",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "e9f9b495927c",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "e0ff495d7a08",
@@ -4520,6 +4928,10 @@
       "out": "8aa03e853d19",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "e45c2051b73b",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "7deddd9f19d7",
       "src": "5852129dd920"
@@ -4717,8 +5129,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "7fe759fa3bf6",
-      "src": "1898784614cb"
+      "out": "4c0ddd3c5929",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "59b92f8722df",
@@ -4963,6 +5375,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "e3bfe60f32f2",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "ba9a174fd51f",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "114d3f6880f1",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "7a4236dc3858",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "8dd1a1ecd038",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "8b934a329b43",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "59b92f8722df",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "5c72d15d094f",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "a5372770f8a7",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "7ef53bf746ba",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "00e2d9a7d9eb",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "ece6210a8e8d",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "dee926e112cb",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "df33d7880448",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "8d25041bfad8",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "504abd2b6cd3",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "804be76a6be5",
@@ -5246,6 +5722,10 @@
       "out": "f001b2f55b3b",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "f0d2cd3055c0",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "2a58887dea26",
       "src": "5852129dd920"
@@ -5443,8 +5923,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "04810c1128bb",
-      "src": "1898784614cb"
+      "out": "7cb0e4f2497f",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "8533aacf2904",
@@ -5689,6 +6169,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "9c4313360381",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "97b8c43da289",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "3269a62af610",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "18e9f6ec32fd",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "36cb2a29de65",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "9fe57c0ea4cd",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "8533aacf2904",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "4d3fb22465f9",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "3e2869b8788d",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "a693461562a9",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8a6172e21a87",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "7cf3e7450d78",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "49ddd1cb9a27",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "7df308ceac22",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "fb22f3b1d1cd",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "7b60359fea5b",
@@ -5972,6 +6516,10 @@
       "out": "f001b2f55b3b",
       "src": "cc64cc29ceeb"
     },
+    "exceptions\u0000invalid_melody\u0000message": {
+      "out": "f0d2cd3055c0",
+      "src": "f703bf47974f"
+    },
     "exceptions\u0000media_download_error\u0000message": {
       "out": "a3c0a46506c3",
       "src": "5852129dd920"
@@ -6169,8 +6717,8 @@
       "src": "bde131e31c9e"
     },
     "services\u0000activate_buzzer\u0000description": {
-      "out": "d4c30266033a",
-      "src": "1898784614cb"
+      "out": "4f34bdff1c5d",
+      "src": "74bb616751d7"
     },
     "services\u0000activate_buzzer\u0000fields\u0000device_id\u0000description": {
       "out": "8533aacf2904",
@@ -6415,6 +6963,70 @@
     "services\u0000drawcustom\u0000name": {
       "out": "9c4313360381",
       "src": "d0df7a6244ea"
+    },
+    "services\u0000play_melody\u0000description": {
+      "out": "aa4a4e127152",
+      "src": "224de1d3125c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000description": {
+      "out": "3269a62af610",
+      "src": "0fb05e8ed92c"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_length\u0000name": {
+      "out": "18e9f6ec32fd",
+      "src": "2bc8ccf1be41"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000description": {
+      "out": "8e33bbe27322",
+      "src": "00c43d4366cb"
+    },
+    "services\u0000play_melody\u0000fields\u0000default_note_ms\u0000name": {
+      "out": "9fe57c0ea4cd",
+      "src": "da3babca5388"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000description": {
+      "out": "8533aacf2904",
+      "src": "7dec980cb238"
+    },
+    "services\u0000play_melody\u0000fields\u0000device_id\u0000name": {
+      "out": "1c555eb7f1c0",
+      "src": "6ba0bdeccb42"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000description": {
+      "out": "4d3fb22465f9",
+      "src": "f39fa742d55c"
+    },
+    "services\u0000play_melody\u0000fields\u0000instance\u0000name": {
+      "out": "3e2869b8788d",
+      "src": "1f671ddded9e"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000description": {
+      "out": "f42841927904",
+      "src": "f46b3a2b1b93"
+    },
+    "services\u0000play_melody\u0000fields\u0000notes\u0000name": {
+      "out": "8a6172e21a87",
+      "src": "8a7525b1492f"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000description": {
+      "out": "1bf7c3ef97ec",
+      "src": "856f94b5e320"
+    },
+    "services\u0000play_melody\u0000fields\u0000repeats\u0000name": {
+      "out": "49ddd1cb9a27",
+      "src": "92ee0233f013"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000description": {
+      "out": "7df308ceac22",
+      "src": "0ace3725b076"
+    },
+    "services\u0000play_melody\u0000fields\u0000tempo\u0000name": {
+      "out": "214b5b846cf3",
+      "src": "214b5b846cf3"
+    },
+    "services\u0000play_melody\u0000name": {
+      "out": "a9ecefe588f4",
+      "src": "0b7fbfcf581e"
     },
     "services\u0000upload_image\u0000description": {
       "out": "86df30f38eee",

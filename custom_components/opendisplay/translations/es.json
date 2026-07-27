@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "El dispositivo `{device_id}` no es un dispositivo OpenDisplay válido."
     },
+    "invalid_melody": {
+      "message": "Melodía inválida: {error}"
+    },
     "media_download_error": {
       "message": "Error al descargar medios: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Activa un tono de buzzer en un dispositivo OpenDisplay.",
+      "description": "Activa un tono de zumbador en un dispositivo OpenDisplay. Para melodías con varias notas, ver Reproducir melodía de zumbador.",
       "fields": {
         "device_id": {
           "description": "El dispositivo OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Dibujar imagen personalizada"
+    },
+    "play_melody": {
+      "description": "Reproduce una melodía con varias notas en el zumbador de un dispositivo OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Fracción de nota (1/2/4/8/16/32) usada al tempo actual para notas sin marcador de duración; anula la duración de nota predeterminada cuando se establece.",
+          "name": "Longitud predeterminada"
+        },
+        "default_note_ms": {
+          "description": "Duración en milisegundos para notas sin marcador de duración, cuando no se establece longitud predeterminada (5-1275).",
+          "name": "Duración de nota predeterminada"
+        },
+        "device_id": {
+          "description": "El dispositivo OpenDisplay.",
+          "name": "Dispositivo"
+        },
+        "instance": {
+          "description": "Índice de instancia del zumbador (basado en 0).",
+          "name": "Instancia del zumbador"
+        },
+        "notes": {
+          "description": "Melodía compacta: tokens separados por espacios o comas, cada uno `pitch[duration]`. Pitch es un nombre de nota (`A4`, `C#5`, se permiten bemoles y cuartos de tono como `A4+`), `R` para silencio, o un índice bruto 0-255. Duración es opcional: `:200` para milisegundos absolutos, o `/4` (cuarto), `/4.` (puntillo), `/8t` (tríada) para fracciones relativas al tempo; si se omite usa la longitud predeterminada o duración de nota predeterminada.",
+          "name": "Notas"
+        },
+        "repeats": {
+          "description": "Número de veces para repetir toda la melodía (1-255).",
+          "name": "Repeticiones"
+        },
+        "tempo": {
+          "description": "Pulsos por minuto; solo afecta duraciones `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Reproducir melodía de zumbador"
     },
     "upload_image": {
       "description": "Sube una imagen a un dispositivo OpenDisplay.",

@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "Apparaat `{device_id}` is geen geldig OpenDisplay-apparaat."
     },
+    "invalid_melody": {
+      "message": "Ongeldige melodie: {error}"
+    },
     "media_download_error": {
       "message": "Media downloaden mislukt: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Activeert een zoemer op een OpenDisplay-apparaat.",
+      "description": "Activeert een buzzer-geluid op een OpenDisplay-apparaat. Voor melodieën met meerdere noten, zie Speel buzzer-melodie.",
       "fields": {
         "device_id": {
           "description": "Het OpenDisplay-apparaat.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Aangepaste afbeelding tekenen"
+    },
+    "play_melody": {
+      "description": "Speelt een melodie met meerdere noten op de buzzer van een OpenDisplay-apparaat.",
+      "fields": {
+        "default_length": {
+          "description": "Nootfracties (1/2/4/8/16/32) gebruikt bij het huidige tempo voor noten zonder duurmarkering; overschrijft de standaard nootduur wanneer ingesteld.",
+          "name": "Standaard lengte"
+        },
+        "default_note_ms": {
+          "description": "Duur in milliseconden voor noten zonder duurmarkering, wanneer geen standaard lengte is ingesteld (5-1275).",
+          "name": "Standaard nootduur"
+        },
+        "device_id": {
+          "description": "Het OpenDisplay-apparaat.",
+          "name": "Apparaat"
+        },
+        "instance": {
+          "description": "Index van buzzer-instantie (0-gebaseerd).",
+          "name": "Buzzer-instantie"
+        },
+        "notes": {
+          "description": "Compacte melodie: witruimte/komma-gescheiden tokens, elk `toon[duur]`. Toon is een nootnaam (`A4`, `C#5`, mollen en kwarttonen zoals `A4+` toegestaan), `R` voor rust, of een ruwe index 0-255. Duur is optioneel: `:200` voor absolute milliseconden, of `/4` (kwart), `/4.` (punt), `/8t` (drieluik) voor tempo-gerelateerde nootfracties; weggelaten gebruikt de standaard lengte of standaard nootduur.",
+          "name": "Noten"
+        },
+        "repeats": {
+          "description": "Aantal keren om de hele melodie te herhalen (1-255).",
+          "name": "Herhalingen"
+        },
+        "tempo": {
+          "description": "Slagen per minuut; beïnvloedt alleen `/fracties` duur (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Speel buzzer-melodie"
     },
     "upload_image": {
       "description": "Uploadt een afbeelding naar een OpenDisplay-apparaat.",

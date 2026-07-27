@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "L’appareil `{device_id}` n’est pas un appareil OpenDisplay valide."
     },
+    "invalid_melody": {
+      "message": "Mélodie invalide : {error}"
+    },
     "media_download_error": {
       "message": "Échec du téléchargement du média : {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Déclenche un son de buzzer sur un appareil OpenDisplay.",
+      "description": "Déclenche un son de buzzer sur un appareil OpenDisplay. Pour les mélodies multi-notes, voir Jouer une mélodie au buzzer.",
       "fields": {
         "device_id": {
           "description": "L'appareil OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Dessiner une image personnalisée"
+    },
+    "play_melody": {
+      "description": "Joue une mélodie multi-notes sur le buzzer d'un appareil OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Fraction de note (1/2/4/8/16/32) utilisée au tempo actuel pour les notes sans marqueur de durée ; remplace la durée de note par défaut si définie.",
+          "name": "Longueur par défaut"
+        },
+        "default_note_ms": {
+          "description": "Durée en millisecondes pour les notes sans marqueur de durée, lorsque aucune longueur par défaut n’est définie (5-1275).",
+          "name": "Durée de note par défaut"
+        },
+        "device_id": {
+          "description": "L’appareil OpenDisplay.",
+          "name": "Appareil"
+        },
+        "instance": {
+          "description": "Index de l’instance du buzzer (base 0).",
+          "name": "Instance du buzzer"
+        },
+        "notes": {
+          "description": "Mélodie compacte : jetons séparés par des espaces ou des virgules, chacun `pitch[duration]`. La hauteur est un nom de note (`A4`, `C#5`, bémols et quart de ton comme `A4+` autorisés), `R` pour un silence, ou un indice brut 0-255. La durée est optionnelle : `:200` pour millisecondes absolues, ou `/4` (noire), `/4.` (pointée), `/8t` (triolet) pour des fractions de note relatives au tempo ; omise utilise la longueur par défaut ou la durée de note par défaut.",
+          "name": "Notes"
+        },
+        "repeats": {
+          "description": "Nombre de répétitions de la mélodie entière (1-255).",
+          "name": "Répétitions"
+        },
+        "tempo": {
+          "description": "Battements par minute ; n’affecte que les durées en `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Jouer une mélodie au buzzer"
     },
     "upload_image": {
       "description": "Télécharge une image sur un appareil OpenDisplay.",

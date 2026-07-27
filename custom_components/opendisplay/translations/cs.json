@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "Zařízení `{device_id}` není platné OpenDisplay zařízení."
     },
+    "invalid_melody": {
+      "message": "Neplatná melodie: {error}"
+    },
     "media_download_error": {
       "message": "Nepodařilo se stáhnout média: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Spustí tón bzučáku na zařízení OpenDisplay.",
+      "description": "Spustí tón bzučáku na zařízení OpenDisplay. Pro melodie s více tóny použít Přehrát melodii bzučáku.",
       "fields": {
         "device_id": {
           "description": "Zařízení OpenDisplay.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Nakreslit vlastní obrázek"
+    },
+    "play_melody": {
+      "description": "Přehrává melodii s více tóny na bzučáku zařízení OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Délka noty jako zlomek (1/2/4/8/16/32) použitá při aktuálním tempu pro noty bez označení délky; přepisuje výchozí délku noty, pokud je nastavena.",
+          "name": "Výchozí délka"
+        },
+        "default_note_ms": {
+          "description": "Délka v milisekundách pro noty bez označení délky, pokud není nastavena výchozí délka (5-1275).",
+          "name": "Výchozí délka noty"
+        },
+        "device_id": {
+          "description": "Zařízení OpenDisplay.",
+          "name": "Zařízení"
+        },
+        "instance": {
+          "description": "Index instance bzučáku (počítáno od 0).",
+          "name": "Instance bzučáku"
+        },
+        "notes": {
+          "description": "Kompaktní melodie: tokeny oddělené mezerami nebo čárkami, každý `pitch[duration]`. Výška tónu je název noty (`A4`, `C#5`, povoleny flaty a čtvrttóny jako `A4+`), `R` pro pauzu, nebo surový index 0-255. Délka je volitelná: `:200` pro absolutní milisekundy, nebo `/4` (čtvrťová), `/4.` (tečkovaná), `/8t` (triplet) pro tempo-relativní délky; pokud chybí, použije se výchozí délka nebo výchozí délka noty.",
+          "name": "Noty"
+        },
+        "repeats": {
+          "description": "Počet opakování celé melodie (1-255).",
+          "name": "Opakování"
+        },
+        "tempo": {
+          "description": "Úderů za minutu; ovlivňuje pouze délky `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Přehrát melodii bzučáku"
     },
     "upload_image": {
       "description": "Nahraje obrázek do zařízení OpenDisplay.",

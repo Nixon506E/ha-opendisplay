@@ -119,6 +119,9 @@
     "invalid_device_id": {
       "message": "Gerät `{device_id}` ist kein gültiges OpenDisplay-Gerät."
     },
+    "invalid_melody": {
+      "message": "Ungültige Melodie: {error}"
+    },
     "media_download_error": {
       "message": "Medien konnten nicht heruntergeladen werden: {error}"
     },
@@ -231,7 +234,7 @@
   },
   "services": {
     "activate_buzzer": {
-      "description": "Löst einen Summer-Ton auf einem OpenDisplay-Gerät aus.",
+      "description": "Löst einen Summer-Ton auf einem OpenDisplay-Gerät aus. Für Melodien mit mehreren Noten siehe Summer-Melodie abspielen.",
       "fields": {
         "device_id": {
           "description": "Das OpenDisplay-Gerät.",
@@ -359,6 +362,40 @@
         }
       },
       "name": "Benutzerdefiniertes Bild zeichnen"
+    },
+    "play_melody": {
+      "description": "Spielt eine Melodie mit mehreren Noten auf dem Summer eines OpenDisplay-Geräts ab.",
+      "fields": {
+        "default_length": {
+          "description": "Notenlänge (1/2/4/8/16/32) im aktuellen Tempo für Noten ohne Längenzeichen; überschreibt die Standardnotenlänge, wenn gesetzt.",
+          "name": "Standardlänge"
+        },
+        "default_note_ms": {
+          "description": "Dauer in Millisekunden für Noten ohne Längenzeichen, wenn keine Standardlänge gesetzt ist (5-1275).",
+          "name": "Standardnotenlänge"
+        },
+        "device_id": {
+          "description": "Das OpenDisplay-Gerät.",
+          "name": "Gerät"
+        },
+        "instance": {
+          "description": "Index der Summer-Instanz (0-basiert).",
+          "name": "Summer-Instanz"
+        },
+        "notes": {
+          "description": "Kompakte Melodie: durch Leerzeichen oder Komma getrennte Tokens, jeweils `Tonhöhe[Dauer]`. Tonhöhe ist ein Notenname (`A4`, `C#5`, auch Flats und Vierteltöne wie `A4+` erlaubt), `R` für Pause oder ein roher Index 0-255. Dauer ist optional: `:200` für absolute Millisekunden oder `/4` (Viertel), `/4.` (punktiert), `/8t` (Triolen) für tempo-relative Notenlängen; bei Weglassen wird die Standardlänge oder Standardnotenlänge verwendet.",
+          "name": "Noten"
+        },
+        "repeats": {
+          "description": "Anzahl der Wiederholungen der gesamten Melodie (1-255).",
+          "name": "Wiederholungen"
+        },
+        "tempo": {
+          "description": "Schläge pro Minute; wirkt sich nur auf `/fraction`-Dauern aus (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Summer-Melodie abspielen"
     },
     "upload_image": {
       "description": "Lädt ein Bild auf ein OpenDisplay-Gerät hoch.",
