@@ -39,6 +39,7 @@ upload_image:
                 - "sierra"
                 - "sierra_lite"
                 - "jarvis_judice_ninke"
+                - "dizzy"
         refresh_mode:
           required: false
           default: "full"
@@ -390,6 +391,7 @@ drawcustom:
             - "sierra"
             - "sierra_lite"
             - "jarvis_judice_ninke"
+            - "dizzy"
     refresh_type:
       name: Refresh type
       description: E-paper refresh mode
