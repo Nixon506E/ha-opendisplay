@@ -195,6 +195,7 @@
       "options": {
         "atkinson": "Atkinson",
         "burkes": "Burkes",
+        "dizzy": "Dizzy",
         "floyd_steinberg": "Floyd-Steinberg",
         "jarvis_judice_ninke": "Jarvis, Judice & Ninke",
         "none": "None",
