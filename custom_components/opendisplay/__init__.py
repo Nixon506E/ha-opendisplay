@@ -281,7 +281,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
     from .update import _format_firmware_version
 
     profile = SleepProfile.from_entry(entry, device_config)
-    coordinator = OpenDisplayCoordinator(hass, address)
+    coordinator = OpenDisplayCoordinator(hass, address, device_config.binary_inputs)
 
     manufacturer = device_config.manufacturer
     display = device_config.displays[0]
