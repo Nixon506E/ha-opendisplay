@@ -90,6 +90,9 @@
       "battery_voltage": {
         "name": "Napětí baterie"
       },
+      "chip_temperature": {
+        "name": "Teplota čipu"
+      },
       "last_seen": {
         "name": "Naposledy viděno"
       },

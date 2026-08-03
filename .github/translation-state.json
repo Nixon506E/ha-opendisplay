@@ -132,6 +132,10 @@
       "out": "1035f4b7fc64",
       "src": "39d6c91b57ce"
     },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "535ff9bd3a17",
+      "src": "773e00c49fe5"
+    },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "64d7ab22fd32",
       "src": "21fd79c7de52"
@@ -925,6 +929,10 @@
     "entity\u0000sensor\u0000battery_voltage\u0000name": {
       "out": "beeb8ebab924",
       "src": "39d6c91b57ce"
+    },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "7afe02882edf",
+      "src": "773e00c49fe5"
     },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "32522f222b66",
@@ -1720,6 +1728,10 @@
       "out": "3c077f56f37d",
       "src": "39d6c91b57ce"
     },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "302db153329e",
+      "src": "773e00c49fe5"
+    },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "a060c6768208",
       "src": "21fd79c7de52"
@@ -2513,6 +2525,10 @@
     "entity\u0000sensor\u0000battery_voltage\u0000name": {
       "out": "72df7d138a1b",
       "src": "39d6c91b57ce"
+    },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "8baf2c90eacd",
+      "src": "773e00c49fe5"
     },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "fceee0a4da07",
@@ -3308,6 +3324,10 @@
       "out": "0226d3e1afe4",
       "src": "39d6c91b57ce"
     },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "302db153329e",
+      "src": "773e00c49fe5"
+    },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "17d51dae14bd",
       "src": "21fd79c7de52"
@@ -4101,6 +4121,10 @@
     "entity\u0000sensor\u0000battery_voltage\u0000name": {
       "out": "356d1e3e9340",
       "src": "39d6c91b57ce"
+    },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "c038ef65bea0",
+      "src": "773e00c49fe5"
     },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "f0a73567f3b8",
@@ -4896,6 +4920,10 @@
       "out": "b0054cb59b34",
       "src": "39d6c91b57ce"
     },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "3993c917527a",
+      "src": "773e00c49fe5"
+    },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "ab7234aa45fa",
       "src": "21fd79c7de52"
@@ -5690,6 +5718,10 @@
       "out": "9558199749f3",
       "src": "39d6c91b57ce"
     },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "3343b911d2a6",
+      "src": "773e00c49fe5"
+    },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "a060c6768208",
       "src": "21fd79c7de52"
@@ -6483,6 +6515,10 @@
     "entity\u0000sensor\u0000battery_voltage\u0000name": {
       "out": "9558199749f3",
       "src": "39d6c91b57ce"
+    },
+    "entity\u0000sensor\u0000chip_temperature\u0000name": {
+      "out": "3343b911d2a6",
+      "src": "773e00c49fe5"
     },
     "entity\u0000sensor\u0000last_seen\u0000name": {
       "out": "a060c6768208",
