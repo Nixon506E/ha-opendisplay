@@ -11,6 +11,7 @@ from opendisplay.models.advertisement import (
     TouchChangeEvent,
     TouchTracker,
 )
+from opendisplay.models.config import BinaryInputs
 
 from homeassistant.components.bluetooth import (
     BluetoothChange,
@@ -40,8 +41,20 @@ class OpenDisplayUpdate:
 class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
     """Coordinator for passive BLE advertisement updates from an OpenDisplay device."""
 
-    def __init__(self, hass: HomeAssistant, address: str) -> None:
-        """Initialize the coordinator."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        address: str,
+        binary_inputs: list[BinaryInputs] | None = None,
+    ) -> None:
+        """Initialize the coordinator.
+
+        binary_inputs comes from the device config and tells the tracker which
+        bytes of the advertisement's dynamic block are really buttons. The rest
+        belong to touch controllers and sensors and decode into valid-looking
+        button reports, so without it a moving touch coordinate or a refreshed
+        SHT40 reading produces phantom button transitions.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -50,7 +63,15 @@ class OpenDisplayCoordinator(PassiveBluetoothDataUpdateCoordinator):
             connectable=True,
         )
         self.data: OpenDisplayUpdate | None = None
-        self._tracker: AdvertisementTracker = AdvertisementTracker()
+        self._tracker: AdvertisementTracker = AdvertisementTracker(
+            None
+            if binary_inputs is None
+            else [
+                index
+                for bi in binary_inputs
+                if (index := bi.published_button_byte_index) is not None
+            ]
+        )
         self.touch_trackers: list[TouchTracker] = []
         # Subscribers notified once when the advertised reboot flag goes
         # False -> True (the device rebooted since we last talked to it).
