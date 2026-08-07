@@ -135,7 +135,7 @@ _LAST_SEEN_DESCRIPTION = OpenDisplaySensorEntityDescription(
     device_class=SensorDeviceClass.TIMESTAMP,
     entity_category=EntityCategory.DIAGNOSTIC,
     entity_registry_enabled_default=False,
-    # native_value is overridden by OpenDisplayLastSeenSensor, so this value_fn
+    # native_value is overridden by OpenDisplayLastSeenSensorEntity, so this value_fn
     # is dead code; value_fn is a required field, hence the no-op.
     value_fn=lambda _upd: None,
 )
@@ -246,11 +246,14 @@ class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore the previous value until Bluetooth has one."""
         await super().async_added_to_hass()
-        if (last_value := await self.async_get_last_state()) is None:
+        if (last_state := await self.async_get_last_state()) is None:
             return
-        if last_value.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+        if last_state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
             return
-        self._last_value = last_value.state
+        if self.device_class == SensorDeviceClass.TIMESTAMP:
+            self._last_value = dt_util.parse_datetime(last_state.state)
+        else:
+            self._last_value = last_state.state
 
 class OpenDisplayLastSeenSensorEntity(OpenDisplayStickySensorEntity):
     """last_seen sourced from the bluetooth stack, not the gated callback."""
@@ -270,12 +273,3 @@ class OpenDisplayLastSeenSensorEntity(OpenDisplayStickySensorEntity):
         wall = info.time + (time.time() - time.monotonic())
         self._last_value = datetime.fromtimestamp(wall, tz=timezone.utc)
         return self._last_value
-
-    async def async_added_to_hass(self) -> None:
-        """Restore the previous last_seen timestamp until Bluetooth has one."""
-        await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is None:
-            return
-        if last_state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
-            return
-        self._last_seen = dt_util.parse_datetime(last_state.state)
