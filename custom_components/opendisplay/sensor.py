@@ -59,28 +59,28 @@ def _sht40_descriptions(
     sensor: SensorData,
 ) -> list[OpenDisplaySensorEntityDescription]:
     """Build ambient temperature and humidity entities for one SHT40.
-    
+
     The reading rides in the advertisement, so these need no connection. Its
     offset within the dynamic block is per-board and cannot be assumed --
     reTerminal E1001/E1002/E1004 use 1 while the firmware default is 7 -- so it
     comes from the device's own config and is captured once per entity here.
-    
+
     Unlike the chip temperature these are primary entities: not diagnostic, and
     enabled by default.
     """
     start_byte = sensor.sht40_msd_start_byte
-    
+
     def _reading(upd: OpenDisplayUpdate) -> Sht40Reading | None:
         return upd.advertisement.sht40_reading(start_byte)
-        
+
     def _temperature(upd: OpenDisplayUpdate) -> float | None:
         reading = _reading(upd)
         return None if reading is None else reading.temperature_c
-        
+
     def _humidity(upd: OpenDisplayUpdate) -> float | None:
         reading = _reading(upd)
         return None if reading is None else reading.humidity_percent
-        
+
     return [
         OpenDisplaySensorEntityDescription(
             key=f"sht40_{sensor.instance_number}_temperature",
@@ -166,11 +166,11 @@ async def async_setup_entry(
         _RSSI_DESCRIPTION,
         _LAST_SEEN_DESCRIPTION,
     ]
-    
+
     for sensor in device_config.sensors:
         if sensor.sensor_type_enum is SensorType.SHT40:
             descriptions += _sht40_descriptions(sensor)
-            
+
     if power_config.power_mode_enum in _BATTERY_POWER_MODES:
         capacity_estimator = power_config.capacity_estimator or CapacityEstimator.LI_ION
         descriptions += [
@@ -186,7 +186,7 @@ async def async_setup_entry(
                 ),
             ),
         ]
-        
+
     async_add_entities(
         _entity_for_description(coordinator, description)
         for description in descriptions
@@ -195,9 +195,9 @@ async def async_setup_entry(
 
 class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
     """A sensor entity for an OpenDisplay device."""
-    
+
     entity_description: OpenDisplaySensorEntityDescription
-    
+
     @property
     def native_value(self) -> float | int | str | datetime | None:
         """Return the sensor value."""
@@ -208,13 +208,13 @@ class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
 
 class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
     """A sensor that keeps its last known value once observed.
-    
+
     Some readings (e.g. battery) only ride in the advertisement and can go
     a long time between updates. Rather than flashing "unavailable" whenever
     Bluetooth briefly loses the device, cache the last non-None value and
     stay available.
     """
-    
+
     def __init__(
         self,
         coordinator,
@@ -223,12 +223,12 @@ class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
         """Initialize the sticky sensor."""
         super().__init__(coordinator, description)
         self._last_value: float | int | str | datetime | None = None
-    
+
     @property
     def available(self) -> bool:
         """Stay available once a value has been observed."""
         return self._last_value is not None or super().available
-    
+
     @property
     def native_value(self) -> float | int | str | datetime | None:
         """Return the last known value, updating it if a fresh one is present."""
@@ -241,7 +241,7 @@ class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
 
 class OpenDisplayLastSeenSensorEntity(OpenDisplayStickySensorEntity):
     """last_seen sourced from the bluetooth stack, not the gated callback."""
-    
+
     @property
     def native_value(self) -> datetime | None:
         # connectable=False matches the Bluetooth advertisement monitor's
