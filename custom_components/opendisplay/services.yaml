@@ -1,20 +1,359 @@
+upload_image:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    image:
+      required: true
+      selector:
+        media:
+          accept:
+            - image/*
+    additional_fields:
+      collapsed: true
+      fields:
+        rotation:
+          required: false
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 270
+              step: 90
+              mode: slider
+        dither_mode:
+          required: false
+          default: "burkes"
+          selector:
+            select:
+              translation_key: dither_mode
+              options:
+                - "none"
+                - "burkes"
+                - "ordered"
+                - "floyd_steinberg"
+                - "atkinson"
+                - "stucki"
+                - "sierra"
+                - "sierra_lite"
+                - "jarvis_judice_ninke"
+                - "dizzy"
+        refresh_mode:
+          required: false
+          default: "full"
+          selector:
+            select:
+              translation_key: refresh_mode
+              options:
+                - "full"
+                - "fast"
+                - "partial"
+        fit_mode:
+          required: false
+          default: "contain"
+          selector:
+            select:
+              translation_key: fit_mode
+              options:
+                - "stretch"
+                - "contain"
+                - "cover"
+                - "crop"
+        tone_compression:
+          required: false
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        measured_palette:
+          required: false
+          default: false
+          selector:
+            boolean:
+
+activate_led:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    brightness:
+      required: false
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 16
+          mode: slider
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: slider
+    color1:
+      required: false
+      default: [255, 0, 0]
+      selector:
+        color_rgb:
+    flash_count1:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay1:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay1:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    color2:
+      required: false
+      default: [0, 255, 0]
+      selector:
+        color_rgb:
+    flash_count2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay2:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    color3:
+      required: false
+      default: [0, 0, 255]
+      selector:
+        color_rgb:
+    flash_count3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: slider
+    loop_delay3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+    inter_delay3:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 25500
+          step: 100
+          unit_of_measurement: ms
+          mode: slider
+
+activate_buzzer:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+    frequency_hz:
+      required: false
+      default: 1000
+      selector:
+        number:
+          min: 0
+          max: 12000
+          mode: box
+          unit_of_measurement: Hz
+    duration_ms:
+      required: false
+      default: 100
+      selector:
+        number:
+          min: 5
+          max: 1275
+          mode: box
+          unit_of_measurement: ms
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
+write_nfc:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    record_type:
+      required: false
+      default: "url"
+      selector:
+        select:
+          translation_key: nfc_record_type
+          options:
+            - "url"
+            - "text"
+            - "mime"
+            - "ha_tag"
+    content:
+      required: true
+      selector:
+        text:
+          multiline: true
+    mime_type:
+      required: false
+      example: text/vcard
+      selector:
+        text:
+
+play_melody:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: opendisplay
+    instance:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+    notes:
+      required: true
+      example: "C5 C5 G5 G5 A5 A5 G5/2"
+      selector:
+        text:
+    tempo:
+      required: false
+      default: 120
+      selector:
+        number:
+          min: 40
+          max: 400
+          mode: box
+          unit_of_measurement: BPM
+    repeats:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    default_note_ms:
+      required: false
+      default: 200
+      selector:
+        number:
+          min: 5
+          max: 1275
+          mode: box
+          unit_of_measurement: ms
+    default_length:
+      required: false
+      selector:
+        select:
+          options:
+            - "1"
+            - "2"
+            - "4"
+            - "8"
+            - "16"
+            - "32"
+
 drawcustom:
   name: Draw Custom Image
-  description: Draws a custom image on one or more E-Paper displays
+  description: Draws a custom image on one or more OpenDisplay devices
   target:
   fields:
     payload:
       name: Payload
-      description: Payload to draw, see documentation for examples
+      description: Drawing elements array (see drawcustom documentation)
       required: true
       example: >
-        [{"type": "text", "value": "Hello World!", "x": 0, "y": 0, "size": 40}]
+        [{"type": "text", "value": "Hello!", "x": 0, "y": 0, "size": 40}]
       selector:
         object:
     background:
       name: Background color
-      description: Background color (black, white, accent, red, yellow)
+      description: Background color
       required: true
+      default: "white"
       example: white
       selector:
         select:
@@ -35,262 +374,58 @@ drawcustom:
           max: 270
           step: 90
     dither:
-      name: Dither
-      description: Dithering option to use
+      name: Dither mode
+      description: Dithering algorithm
       required: true
-      default: 2
+      default: "burkes"
       selector:
         select:
+          translation_key: dither_mode
           options:
-            - label: "No dithering"
-              value: "0"
-            - label: "Burkes (best for photos)"
-              value: "1"
-            - label: "Ordered (best for halftone colors)"
-              value: "2"
-    ttl:
-      name: Time to live
-      description: >
-        How long the tag will sleep before checking in again (in seconds).
-        
-        Notes:
-        - The TTL applies only once after each image update
-        - Setting a very long TTL means you cannot update the tag again until that time has passed
+            - "none"
+            - "burkes"
+            - "ordered"
+            - "floyd_steinberg"
+            - "atkinson"
+            - "stucki"
+            - "sierra"
+            - "sierra_lite"
+            - "jarvis_judice_ninke"
+            - "dizzy"
+    refresh_type:
+      name: Refresh type
+      description: E-paper refresh mode
       required: true
-      default: 60
+      default: "full"
+      selector:
+        select:
+          translation_key: refresh_mode
+          options:
+            - "full"
+            - "fast"
+            - "partial"
+    tone_compression:
+      name: Tone compression
+      description: Tone compression strength (0–100%). Omit to use automatic tone mapping.
+      required: false
       selector:
         number:
           min: 0
-          max: 86400
-          unit_of_measurement: seconds
-    refresh_type:
-      name: Refresh type
-      description: >
-        E-paper display refresh mode.
-        
-        - Full: Best quality (~2s), full screen refresh.
-        
-        - Fast: Moderate quality (~1s), quick update.
-        
-        - Partial: Fastest (~0.3s), may show ghosting.
-        
-        - Partial2: Alternative partial mode.
-        
-        Note: ATC BLE tags do not support this parameter.
+          max: 100
+          step: 1
+          mode: slider
+          unit_of_measurement: "%"
+    measured_palette:
+      name: Use measured palette
+      description: Use the panel's measured color palette when available. Turn off to dither against the theoretical color scheme. No effect on panels without measured data.
       required: false
-      default: "0"
+      default: false
       selector:
-        select:
-          options:
-            - label: "Full (best quality)"
-              value: "0"
-            - label: "Fast (moderate quality)"
-              value: "1"
-            - label: "Partial (fastest)"
-              value: "2"
-            - label: "Partial2 (alternative partial)"
-              value: "3"
+        boolean:
     dry-run:
       name: Dry run
-      description: Generate image but don't send to device
+      description: Generate image without sending to device
       required: true
       default: false
       selector:
         boolean:
-
-setled:
-  name: Set LED Pattern
-  description: >
-    Sets the LED flash pattern; brightness controls flash on-time (0–15, higher = longer on-time);
-    missing color2/3 are skipped.
-    See https://github.com/OpenDisplay/OpenDisplay/wiki/Led-control for details.
-  target:
-  fields:
-    mode:
-      name: Mode
-      description: LED mode (off or flash)
-      required: true
-      default: flash
-      selector:
-        select:
-          options:
-            - "off"
-            - "flash"
-    brightness:
-      name: Brightness
-      description: LED flash on-time nibble (0–15). Higher = longer on-time; start low to save battery.
-      required: false
-      default: 1
-      selector:
-        number:
-          min: 1
-          max: 16
-          step: 1
-          mode: slider
-    repeats:
-      name: Repeats
-      description: Number of times to repeat the pattern
-      required: false
-      default: 2
-      selector:
-        number:
-          min: 1
-          max: 255
-          step: 1
-          mode: slider
-    color1:
-      name: Color 1
-      description: First color in the pattern
-      required: false
-      default: [255, 0, 0]
-      selector:
-        color_rgb:
-    flashSpeed1:
-      name: Flash Speed 1
-      description: Flash speed for first color (seconds)
-      required: false
-      default: 0.2
-      selector:
-        number:
-          min: 0
-          max: 1.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-    flashCount1:
-      name: Flash Count 1
-      description: Number of flashes for first color
-      required: false
-      default: 2
-      selector:
-        number:
-          min: 0
-          max: 15
-          step: 1
-          mode: slider
-    delay1:
-      name: Delay 1
-      description: Delay after first color
-      required: false
-      default: 0.1
-      selector:
-        number:
-          min: 0
-          max: 25.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-    color2:
-      name: Color 2
-      description: Optional second color; omit to skip this group.
-      required: false
-      default: [0, 255, 0]
-      selector:
-        color_rgb:
-    flashSpeed2:
-      name: Flash Speed 2
-      description: Flash speed for second color (seconds)
-      required: false
-      default: 0.2
-      selector:
-        number:
-          min: 0
-          max: 1.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-    flashCount2:
-      name: Flash Count 2
-      description: Number of flashes for second color (0 skips this color).
-      required: false
-      default: 2
-      selector:
-        number:
-          min: 0
-          max: 15
-          step: 1
-          mode: slider
-    delay2:
-      name: Delay 2
-      description: Delay after second color
-      required: false
-      default: 0.1
-      selector:
-        number:
-          min: 0
-          max: 25.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-    color3:
-      name: Color 3
-      description: Optional third color; omit to skip this group.
-      required: false
-      default: [0, 0, 255]
-      selector:
-        color_rgb:
-    flashSpeed3:
-      name: Flash Speed 3
-      description: Flash speed for third color (seconds)
-      required: false
-      default: 0.2
-      selector:
-        number:
-          min: 0
-          max: 1.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-    flashCount3:
-      name: Flash Count 3
-      description: Number of flashes for third color (0 skips this color).
-      required: false
-      default: 2
-      selector:
-        number:
-          min: 0
-          max: 15
-          step: 1
-          mode: slider
-    delay3:
-      name: Delay 3
-      description: Delay after third color
-      required: false
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 25.5
-          step: 0.1
-          unit_of_measurement: "s"
-          mode: slider
-
-clear_pending:
-  name: Clear Pending
-  description: Clears the pending status for one or more ESL tags
-  target:
-
-force_refresh:
-  name: Force Refresh
-  description: Forces one or more ESL tags to refresh their display
-  target:
-
-reboot_tag:
-  name: Reboot Tag
-  description: Reboots one or more ESL tags
-  target:
-
-scan_channels:
-  name: Scan Channels
-  description: Makes one or more ESL tags scan for channels
-  target:
-
-reboot_ap:
-  name: Reboot AP
-  description: Reboots the AP
-  target:
-
-refresh_tag_types:
-  name: Refresh Tag Types
-  description: Force refresh of tag type definitions from GitHub
-  target:

@@ -1,563 +1,469 @@
 {
   "config": {
+    "abort": {
+      "already_configured": "Urządzenie jest już skonfigurowane",
+      "already_in_progress": "Proces konfiguracji jest już w toku",
+      "cannot_connect": "Nie udało się połączyć",
+      "no_devices_found": "Nie znaleziono urządzeń w sieci",
+      "reauth_successful": "Ponowna autoryzacja zakończona sukcesem",
+      "unknown": "Nieoczekiwany błąd"
+    },
+    "error": {
+      "cannot_connect": "Nie udało się połączyć",
+      "invalid_auth": "Nieprawidłowa autoryzacja",
+      "invalid_key_format": "Klucz szyfrowania musi mieć dokładnie 32 znaki szesnastkowe (0-9, a-f).",
+      "unknown": "Nieoczekiwany błąd"
+    },
+    "flow_title": "{name}",
     "step": {
       "bluetooth_confirm": {
-        "title": "Konfiguracja tagu BLE",
-        "description": "Skonfigurować **{name}**?\n\n**Szczegóły:**\n- Adres: {address}\n- Sygnał: {rssi} dBm\n- Bateria: {battery}\n- Firmware: {fw_version}\n- Wersja konfiguracji: {config_version}"
+        "description": "Skonfigurować {name}?"
       },
-      "dhcp_confirm": {
-        "title": "Skonfiguruj {hostname} ({ip})",
-        "description": "Punkt dostępowy OpenDisplay został wykryty w sieci.\n\n**Szczegóły urządzenia:**\n- Nazwa hosta: {hostname}\n- Adres IP: {ip}\n- Adres MAC: {mac}\n\nCzy ten punkt dostępowy powinien zostać dodany do Home Assistant?"
-      },
-      "reconfigure": {
-        "title": "Zaktualizuj punkt dostępowy",
-        "description": "Zaktualizuj adres punktu dostępowego OpenDisplay.",
+      "encryption_key": {
         "data": {
-          "host": "Host lub IP"
+          "encryption_key": "Klucz szyfrowania"
         },
         "data_description": {
-          "host": "Nazwa hosta lub adres IP punktu dostępowego OpenDisplay."
-        }
+          "encryption_key": "Wprowadź 32-znakowy szesnastkowy klucz szyfrowania AES-128 dla tego urządzenia."
+        },
+        "description": "{name} wymaga klucza szyfrowania do połączenia.",
+        "title": "Wymagane szyfrowanie"
+      },
+      "reauth_confirm": {
+        "data": {
+          "encryption_key": "Klucz szyfrowania"
+        },
+        "data_description": {
+          "encryption_key": "Wprowadź 32-znakowy szesnastkowy klucz szyfrowania AES-128 dla tego urządzenia."
+        },
+        "description": "Autoryzacja nie powiodła się dla {name}. Wprowadź poprawny klucz szyfrowania lub pozostaw puste, jeśli szyfrowanie zostało wyłączone na urządzeniu.",
+        "title": "Wymagana ponowna autoryzacja"
       },
       "user": {
         "data": {
-          "host": "Host lub IP"
+          "address": "Urządzenie"
         },
         "data_description": {
-          "host": "Nazwa hosta lub adres IP punktu dostępowego OpenDisplay."
-        }
-      }
-    },
-    "error": {
-      "interrogation_failed": "Nie udało się połączyć z urządzeniem i odczytać informacji o wyświetlaczu. Błąd: {error}. Spróbuj ponownie lub sprawdź łączność urządzenia.",
-      "invalid_device_config": "Urządzenie zwróciło nieprawidłowe dane konfiguracyjne. Skonfiguruj urządzenie ponownie lub zaktualizuj jego firmware."
-    },
-    "abort": {
-      "single_instance_allowed": "Tylko jeden hub OEPL może być skonfigurowany. Obsługiwanych jest wiele urządzeń BLE, ale tylko jeden hub AP.",
-      "unsupported_protocol": "Nieobsługiwany protokół firmware BLE. Obsługiwane są tylko ATC i OpenDisplay.",
-      "invalid_advertising_data": "Nie można przetworzyć danych reklamowych urządzenia. Upewnij się, że urządzenie używa kompatybilnego firmware.",
-      "no_reconfigure_ble": "Urządzenia BLE nie obsługują rekonfiguracji. Usuń i dodaj urządzenie ponownie, jeśli potrzebna jest zmiana ustawień.",
-      "cannot_connect": "Nie udało się połączyć z wykrytym punktem dostępowym. Sprawdź, czy urządzenie jest online i dostępne w sieci."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Zarządzanie tagami",
-        "description": "Wybierz tagi do umieszczenia na czarnej liście. Tagi z listy będą ukryte i ignorowane.",
-        "data": {
-          "blacklisted_tags": "Czarna lista tagów",
-          "button_debounce": "Opóźnienie przycisku (sekundy)",
-          "nfc_debounce": "Opóźnienie NFC (sekundy)",
-          "custom_font_dirs": "Niestandardowe katalogi czcionek"
+          "address": "Wybierz urządzenie Bluetooth do konfiguracji."
         },
-        "data_description": {
-          "blacklisted_tags": "Tagi do ukrycia; tagi na czarnej liście nie będą aktualizowane ani wywoływały usług.",
-          "button_debounce": "Opóźnienie przed przyjęciem kolejnego naciśnięcia przycisku (sekundy).",
-          "nfc_debounce": "Opóźnienie przed przyjęciem kolejnego odczytu NFC (sekundy).",
-          "custom_font_dirs": "Katalogi z dodatkowymi czcionkami do generowanych obrazów (oddzielone przecinkami)."
-        }
+        "description": "Wybierz urządzenie do konfiguracji"
       }
-    },
-    "abort": {
-      "no_options_ble": "Brak konfigurowalnych opcji dla urządzeń BLE. Urządzenia BLE są zarządzane automatycznie i nie wymagają dodatkowych ustawień."
     }
   },
   "entity": {
-    "switch": {
-      "preview": {
-        "name": "Podgląd obrazów na AP"
-      },
-      "ble": {
-        "name": "Bluetooth LE"
-      },
-      "nightlyreboot": {
-        "name": "Nocny restart"
-      },
-      "showtimestamp": {
-        "name": "Pokaż znacznik czasu"
+    "binary_sensor": {
+      "update_pending": {
+        "name": "Aktualizacja oczekuje"
       }
     },
-    "text": {
-      "alias": {
-        "name": "Alias"
+    "event": {
+      "button": {
+        "name": "Przycisk {number}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "button_down": "Przycisk wciśnięty",
+              "button_up": "Przycisk zwolniony"
+            }
+          }
+        }
       },
-      "repo": {
-        "name": "Repozytorium"
-      },
-      "tag_alias": {
-        "name": "Alias"
-      }
-    },
-    "select": {
-      "channel": {
-        "name": "Kanał"
-      },
-      "led": {
-        "name": "Jasność diody RGB"
-      },
-      "tft": {
-        "name": "Jasność TFT"
-      },
-      "maxsleep": {
-        "name": "Maksymalny czas uśpienia"
-      },
-      "lock": {
-        "name": "Zablokuj inwentarz tagów"
-      },
-      "wifipower": {
-        "name": "Moc WiFi"
-      },
-      "language": {
-        "name": "Język"
-      },
-      "discovery": {
-        "name": "Metoda wykrywania"
-      },
-      "subghzchannel": {
-        "name": "Kanał Sub-GHz"
-      },
-      "sleeptime1": {
-        "name": "Brak aktualizacji między 1 (od)"
-      },
-      "sleeptime2": {
-        "name": "Brak aktualizacji między 2 (do)"
-      }
-    },
-    "sensor": {
-      "ip": {
-        "name": "Adres IP"
-      },
-      "wifi_ssid": {
-        "name": "SSID WiFi"
-      },
-      "record_count": {
-        "name": "Liczba tagów"
-      },
-      "db_size": {
-        "name": "Rozmiar bazy danych"
-      },
-      "little_fs_free": {
-        "name": "Wolne LittleFS"
-      },
-      "ap_state": {
-        "name": "Stan"
-      },
-      "run_state": {
-        "name": "Stan pracy"
-      },
-      "wifi_rssi": {
-        "name": "RSSI WiFi"
-      },
-      "heap": {
-        "name": "Wolna pamięć sterty"
-      },
-      "sys_time": {
-        "name": "Czas systemowy"
-      },
-      "uptime": {
-        "name": "Czas działania"
-      },
-      "low_battery_tag_count": {
-        "name": "Liczba tagów z niskim poziomem baterii"
-      },
-      "timeout_tag_count": {
-        "name": "Liczba tagów z przekroczonym czasem"
-      },
-      "ps_ram_free": {
-        "name": "Wolny PSRAM"
-      },
-      "temperature": {
-        "name": "Temperatura"
-      },
-      "battery_voltage": {
-        "name": "Napięcie baterii"
-      },
-      "battery_percentage": {
-        "name": "Poziom baterii"
-      },
-      "last_seen": {
-        "name": "Ostatnio widziany"
-      },
-      "next_update": {
-        "name": "Następna aktualizacja"
-      },
-      "next_checkin": {
-        "name": "Następne zameldowanie"
-      },
-      "lqi": {
-        "name": "Wskaźnik jakości łącza"
-      },
-      "rssi": {
-        "name": "RSSI"
-      },
-      "pending_updates": {
-        "name": "Oczekujące aktualizacje"
-      },
-      "content_mode": {
-        "name": "Tryb zawartości"
-      },
-      "wakeup_reason": {
-        "name": "Powód wybudzenia"
-      },
-      "capabilities": {
-        "name": "Możliwości"
-      },
-      "update_count": {
-        "name": "Liczba aktualizacji"
-      },
-      "width": {
-        "name": "Szerokość"
-      },
-      "height": {
-        "name": "Wysokość"
-      },
-      "runtime": {
-        "name": "Czas działania"
-      },
-      "boot_count": {
-        "name": "Liczba uruchomień"
-      },
-      "checkin_count": {
-        "name": "Liczba zameldowań"
-      },
-      "block_requests": {
-        "name": "Żądania transferu blokowego"
+      "touch": {
+        "name": "Dotyk {number}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "touch_down": "Dotyk rozpoczęty",
+              "touch_move": "Dotyk przesunięty",
+              "touch_up": "Dotyk zakończony"
+            }
+          }
+        }
       }
     },
     "image": {
       "content": {
-        "name": "Zawartość"
+        "name": "Zawartość wyświetlacza"
       }
     },
-    "light": {
-      "led": {
-        "name": "LED"
-      }
-    },
-    "button": {
-      "clear_pending": {
-        "name": "Wyczyść oczekujące aktualizacje"
+    "sensor": {
+      "battery_voltage": {
+        "name": "Napięcie baterii"
       },
-      "force_refresh": {
-        "name": "Wymuś odświeżenie treści"
+      "chip_temperature": {
+        "name": "Temperatura układu"
       },
-      "reboot_tag": {
-        "name": "Uruchom ponownie tag"
+      "last_seen": {
+        "name": "Ostatnio widziany"
       },
-      "scan_channels": {
-        "name": "Skanuj kanały"
-      },
-      "deep_sleep": {
-        "name": "Głęboki sen"
-      },
-      "reboot_ap": {
-        "name": "Uruchom ponownie AP"
-      },
-      "refresh_tag_types": {
-        "name": "Odśwież typy tagów"
-      },
-      "refresh_config": {
-        "name": "Odśwież konfigurację"
+      "rssi": {
+        "name": "Siła sygnału (RSSI)"
       }
     },
     "update": {
       "firmware": {
         "name": "Oprogramowanie układowe"
-      },
-      "opendisplay_ble_firmware": {
-        "name": "Oprogramowanie OpenDisplay"
       }
     }
   },
-  "issues": {
-    "camera_migration_needed": {
-      "title": "Przeniesiono encje kamer",
-      "description": "OpenDisplay przeniósł {count} encje kamer do encji obrazów. Zaktualizuj pulpity i automatyzacje, aby używać nowych encji obrazów. Usunięte encje: {entities}"
-    }
-  },
-  "preview_features": {
-    "opendisplay_ble_updates": {
-      "name": "Aktualizacje firmware OpenDisplay",
-      "description": "Wyświetla encję aktualizacji firmware dla tagów OpenDisplay BLE, porównując z najnowszym wydaniem OpenDisplay_BLE na GitHub. Instalacja jeszcze niedostępna."
-    }
-  },
   "exceptions": {
-    "ble_device_not_detected": {
-      "message": "Urządzenie BLE {name} ({mac_address}) nie zostało wykryte w zasięgu Bluetooth."
-    },
-    "ap_cannot_connect": {
-      "message": "Nie można połączyć z AP pod adresem {host}: {error}"
-    },
-    "ap_failed_load_tags": {
-      "message": "Nie udało się wczytać tagów z AP pod adresem {host}: {error}"
-    },
-    "ap_timeout_action": {
-      "message": "Przekroczono czas podczas {action}."
-    },
-    "ap_network_error_action": {
-      "message": "Błąd sieci podczas {action}: {error}"
-    },
-    "ap_failed_action_http": {
-      "message": "Nie udało się {action}: HTTP {status_code} - {response_text}"
+    "authentication_error": {
+      "message": "Autoryzacja nie powiodła się. Zaktualizuj klucz szyfrowania."
     },
     "device_not_found": {
-      "message": "Urządzenie {device_id} nie znalezione."
+      "message": "Nie znaleziono urządzenia Bluetooth o adresie `{address}`."
     },
-    "device_no_identifiers": {
-      "message": "Nie znaleziono identyfikatorów dla urządzenia {device_id}."
+    "device_sleeping": {
+      "message": "Urządzenie `{device_id}` jest uśpione i nie można się z nim od razu połączyć. Obudź je i spróbuj ponownie."
     },
-    "device_not_opendisplay": {
-      "message": "Urządzenie {device_id} nie jest urządzeniem OpenDisplay."
+    "device_sleeping_ota": {
+      "message": "Urządzenie jest uśpione i nie można go teraz zaktualizować. Obudź je (naciśnij przycisk lub poczekaj na kolejne zaplanowane sprawdzenie) i rozpocznij aktualizację ponownie."
     },
-    "no_targets_specified": {
-      "message": "Nie określono urządzeń docelowych. Podaj device_id, label_id lub area_id."
+    "invalid_device_id": {
+      "message": "Urządzenie `{device_id}` nie jest prawidłowym urządzeniem OpenDisplay."
     },
-    "ap_offline": {
-      "message": "AP OpenDisplay jest offline. Sprawdź połączenie sieciowe i stan AP."
+    "invalid_melody": {
+      "message": "Nieprawidłowa melodia: {error}"
     },
-    "error_processing_device": {
-      "message": "Nieoczekiwany błąd podczas przetwarzania urządzenia {entity_id}: {error}"
+    "media_download_error": {
+      "message": "Nie udało się pobrać mediów: {error}"
     },
-    "ble_upload_bt_disabled": {
-      "message": "Nie można wysłać do urządzenia BLE {entity_id}: integracja Bluetooth jest wyłączona lub brak dostępnych skanerów."
-    },
-    "ble_no_metadata": {
-      "message": "Nie znaleziono metadanych dla urządzenia BLE {entity_id}."
-    },
-    "ble_upload_failed": {
-      "message": "Przesłanie obrazu BLE dla {entity_id} nie powiodło się."
-    },
-    "ble_direct_write_failed": {
-      "message": "Przesłanie bezpośrednie BLE dla {entity_id} nie powiodło się."
-    },
-    "ble_direct_write_not_supported": {
-      "message": "Bezpośredni zapis jest obsługiwany tylko dla urządzeń OpenDisplay, a {entity_id} wygląda na urządzenie ATC."
-    },
-    "image_upload_status": {
-      "message": "Przesyłanie obrazu dla {entity_id} nie powiodło się, kod statusu: {status_code}."
-    },
-    "image_upload_timeout": {
-      "message": "Przesyłanie obrazu dla {entity_id} przekroczyło czas po {attempts} próbach."
-    },
-    "image_upload_network": {
-      "message": "Błąd sieci podczas przesyłania obrazu dla {entity_id}: {error}."
-    },
-    "image_upload_failed": {
-      "message": "Nie udało się przesłać obrazu dla {entity_id}: {error}."
-    },
-    "unexpected_upload": {
-      "message": "Nieoczekiwany błąd przesyłania dla {entity_id}: {error}."
-    },
-    "unexpected_ble_upload": {
-      "message": "Nieoczekiwany błąd podczas przesyłania BLE do {entity_id}: {error}."
-    },
-    "unexpected_ble_direct_write": {
-      "message": "Nieoczekiwany błąd podczas bezpośredniego zapisu BLE do {entity_id}: {error}."
-    },
-    "ap_tag_alias_update_failed": {
-      "message": "Nie udało się zaktualizować aliasu tagu {tag_mac}: AP zwrócił HTTP {status_code} - {response_text}."
-    },
-    "ap_tag_alias_timeout": {
-      "message": "Przekroczono czas aktualizacji aliasu dla {tag_mac}. Sprawdź łączność z AP."
-    },
-    "ap_tag_alias_network": {
-      "message": "Błąd sieci podczas aktualizacji aliasu dla {tag_mac}: {error}."
-    },
-    "ap_tag_alias_unexpected": {
-      "message": "Nieoczekiwany błąd podczas aktualizacji aliasu dla {tag_mac}: {error}."
-    },
-    "ap_offline_core": {
-      "message": "AP OpenDisplay jest offline."
-    },
-    "invalid_entity_id_format": {
-      "message": "Nieprawidłowy format identyfikatora encji: {entity_id}."
-    },
-    "tag_not_registered": {
-      "message": "Tag {tag_mac} nie jest zarejestrowany w AP. Jeśli tag się zameldował, spróbuj zrestartować Home Assistant."
-    },
-    "tag_blacklisted": {
-      "message": "Tag {tag_mac} jest obecnie na czarnej liście. Usuń go w opcjach integracji, aby używać."
-    },
-    "tag_inconsistent": {
-      "message": "Niespójny stan: Tag {tag_mac} jest znany, ale brak danych. Zgłoś jako błąd."
-    },
-    "tag_no_hw_type": {
-      "message": "Brak typu sprzętu dla tagu {tag_mac}. Poczekaj na kolejny check-in tagu."
-    },
-    "tag_unknown_hw_type": {
-      "message": "Nieznany typ sprzętu {hw_type} dla tagu {tag_mac}. Spróbuj odświeżyć typy tagów w opcjach integracji."
-    },
-    "invalid_canvas_dimensions": {
-      "message": "Nieprawidłowe wymiary płótna {width}x{height} dla {entity_id}. Metadane urządzenia mogą być uszkodzone lub brakujące. Spróbuj przeładować integrację lub dodać urządzenie ponownie."
-    },
-    "ble_tag_info_unexpected": {
-      "message": "Nieoczekiwany błąd podczas pobierania typu tagu dla {entity_id}: {error}."
-    },
-    "ble_tag_info_unexpected_ble": {
-      "message": "Nieoczekiwany błąd podczas pobierania typu tagu BLE dla {entity_id}: {error}."
-    },
-    "qr_generation_failed": {
-      "message": "Nie udało się wygenerować kodu QR: {error}."
-    },
-    "image_entity_not_found": {
-      "message": "Encja obrazu {entity_id} nie została znaleziona."
-    },
-    "image_entity_no_url": {
-      "message": "Nie znaleziono adresu URL obrazu dla encji {entity_id}."
-    },
-    "image_download_failed": {
-      "message": "Nie udało się pobrać obrazu: HTTP {status_code}."
-    },
-    "image_data_uri_invalid": {
-      "message": "Nieprawidłowy identyfikator URI danych: {error}."
-    },
-    "image_process_failed": {
-      "message": "Nie udało się przetworzyć obrazu: {error}."
-    },
-    "font_load_failed": {
-      "message": "Nie można załadować żadnej czcionki. Wskazuje to na problem z instalacją integracji."
-    },
-    "plot_duration_invalid": {
-      "message": "duration musi być większe niż 0 sekund."
-    },
-    "plot_no_data": {
-      "message": "Brak zarejestrowanych danych dla {entity_id}."
-    },
-    "plot_no_valid_points": {
-      "message": "Brak prawidłowych punktów danych."
-    },
-    "plot_yaxis_invalid": {
-      "message": "yaxis.tick_every musi być większe niż 0."
-    },
-    "plot_xlegend_invalid": {
-      "message": "xlegend.interval musi być większe niż 0."
-    },
-    "plot_draw_failed": {
-      "message": "Nie udało się narysować wykresu: {error}."
-    },
-    "plot_bar_invalid": {
-      "message": "Nieprawidłowe dane słupków dla diagramu: {error}."
-    },
-    "mdi_metadata_failed": {
-      "message": "Nie udało się załadować metadanych MDI: {error}."
-    },
-    "icon_name_invalid": {
-      "message": "Nieprawidłowa nazwa ikony: {icon_name}."
-    },
-    "icon_draw_failed": {
-      "message": "Nie udało się narysować ikony: {error}."
-    },
-    "icon_draw_failed_named": {
-      "message": "Nie udało się narysować ikony {icon_name}: {error}."
-    },
-    "led_on_failed": {
-      "message": "Nie udało się włączyć diody LED."
-    },
-    "led_on_error": {
-      "message": "Błąd podczas włączania diody LED: {error}."
-    },
-    "led_off_failed": {
-      "message": "Nie udało się wyłączyć diody LED."
-    },
-    "led_off_error": {
-      "message": "Błąd podczas wyłączania diody LED: {error}."
-    },
-    "tagtypes_load_failed": {
-      "message": "Nie udało się załadować definicji typów tagów. Brak zapisanych danych. Sprawdź łączność sieciową lub dostęp do GitHub."
-    },
-    "tagtypes_refresh_failed": {
-      "message": "Nie udało się odświeżyć definicji typów tagów. Sprawdź łączność sieciową lub dostęp do GitHub."
-    },
-    "no_hub_configured": {
-      "message": "Brak skonfigurowanego huba AP. Znaleziono tylko urządzenia BLE."
-    },
-    "ble_slots_unavailable": {
-      "message": "Brak dostępnych slotów połączeń Bluetooth dla {mac_address}. Dodaj więcej proxy Bluetooth ESPHome w pobliżu lub poczekaj na zwolnienie połączeń. Szczegóły: {error}."
-    },
-    "ble_device_not_found": {
-      "message": "Urządzenie {mac_address} nie zostało znalezione."
-    },
-    "ble_characteristic_not_resolved": {
-      "message": "Nie udało się ustalić charakterystyki dla usługi {service_uuid}."
-    },
-    "ble_connection_failed": {
-      "message": "Nie udało się połączyć z {mac_address}: {error}."
-    },
-    "ble_write_char_missing": {
-      "message": "Brak dostępnej charakterystyki zapisu."
-    },
-    "ble_timeout": {
-      "message": "Brak odpowiedzi od {mac_address} w ciągu {timeout}s."
-    },
-    "ble_operation_failed": {
-      "message": "Operacja BLE {operation} nie powiodła się po {attempts} próbach: {error}."
-    },
-    "ble_operation_retry": {
-      "message": "Operacja BLE {operation} nie powiodła się w próbie {attempt}: {error}. Ponowna próba za {delay}s..."
-    },
-    "ble_protocol_invalid_response_length": {
-      "message": "Nieprawidłowa długość odpowiedzi informacji o wyświetlaczu: {length} (oczekiwano co najmniej {expected_length})."
-    },
-    "ble_protocol_invalid_command_id": {
-      "message": "Nieprawidłowy identyfikator polecenia w odpowiedzi: {command_id}."
-    },
-    "ble_protocol_payload_too_short": {
-      "message": "Ładunek informacji o wyświetlaczu jest zbyt krótki."
-    },
-    "opendisplay_config_chunk_short": {
-      "message": "Dane fragmentu są zbyt krótkie: {length} bajtów."
-    },
-    "opendisplay_expected_chunk_zero": {
-      "message": "Oczekiwano fragmentu 0, otrzymano fragment {chunk_num}."
-    },
-    "opendisplay_config_too_short": {
-      "message": "Dane konfiguracji są zbyt krótkie: {length} bajtów (wymagane co najmniej {minimum})."
-    },
-    "opendisplay_fw_response_short": {
-      "message": "Odpowiedź wersji firmware jest zbyt krótka: {length} bajtów."
-    },
-    "opendisplay_fw_version_format": {
-      "message": "Długość SHA wersji firmware {sha_length} przekracza ładunek ({payload_length} bajtów)."
-    },
-    "tlv_section_too_short": {
-      "message": "{section} wymaga {expected} bajtów, otrzymano {actual}."
-    },
-    "tlv_data_too_short": {
-      "message": "Dane konfiguracji są zbyt krótkie: {length} bajtów (minimum 2)."
-    },
-    "tlv_crc_mismatch": {
-      "message": "Niezgodność CRC32: oczekiwano {expected_crc32}, otrzymano {actual_crc32}."
-    },
-    "tlv_unknown_packet": {
-      "message": "Nieznany identyfikator pakietu: {packet_id} przy przesunięciu {offset}."
-    },
-    "tlv_packet_too_short": {
-      "message": "Pakiet o ID {packet_id} wymaga {packet_size} bajtów, ale pozostało tylko {remaining_bytes} bajtów przy przesunięciu {offset}."
-    },
-    "tlv_packet_parse_failed": {
-      "message": "Nie udało się przetworzyć pakietu {packet_id} przy przesunięciu {offset}: {error}."
-    },
-    "tlv_no_display_config": {
-      "message": "Brak konfiguracji wyświetlacza w danych urządzenia."
-    },
-    "tlv_invalid_dimensions": {
-      "message": "Nieprawidłowe wymiary pikseli: {width}x{height}."
-    },
-    "config_flow_invalid_config": {
-      "message": "Urządzenie zwróciło nieprawidłowe dane konfiguracyjne."
-    },
-    "config_flow_missing_config": {
-      "message": "Urządzenie nie zwróciło danych konfiguracyjnych."
-    },
-    "refresh_config_failed": {
-      "message": "Nie udało się odświeżyć konfiguracji: {error}."
+    "mime_type_not_applicable": {
+      "message": "Pole mime_type dotyczy tylko rekordów MIME. Ustaw record_type na mime lub pomiń mime_type."
     },
     "multiple_errors": {
-      "message": "Wystąpiło wiele błędów:\n{errors}"
+      "message": "Wystąpiły błędy dla jednego lub więcej urządzeń:\n{errors}"
     },
-    "invalid_payload": {
-      "message": "Nieprawidłowy ładunek:\n{errors}"
+    "nfc_content_empty": {
+      "message": "Zawartość NFC nie może być pusta."
+    },
+    "nfc_content_too_long": {
+      "message": "Zawartość NFC jest zbyt duża ({size} bajtów). Maksymalna wielkość to {max} bajtów."
+    },
+    "nfc_mime_type_invalid": {
+      "message": "Typ MIME `{mime_type}` jest nieprawidłowy. Musi mieć 1-255 bajtów po zakodowaniu w UTF-8."
+    },
+    "nfc_not_supported": {
+      "message": "Urządzenie `{device_id}` nie odpowiedziało na zapis NFC. Jego oprogramowanie może nie obsługiwać zapisu tagów NFC; spróbuj zaktualizować do najnowszej wersji."
+    },
+    "nfc_write_failed": {
+      "message": "Nie udało się zapisać tagu NFC: {error}"
+    },
+    "no_buzzers": {
+      "message": "Urządzenie `{device_id}` nie ma skonfigurowanego buzzera."
+    },
+    "no_leds": {
+      "message": "Urządzenie `{device_id}` nie ma skonfigurowanych diod LED."
+    },
+    "no_nfc": {
+      "message": "Urządzenie `{device_id}` nie ma skonfigurowanego układu NFC."
+    },
+    "no_targets_specified": {
+      "message": "Nie określono docelowych urządzeń."
+    },
+    "upload_error": {
+      "message": "Nie udało się przesłać na wyświetlacz: {error}"
+    },
+    "url_not_allowed": {
+      "message": "URL `{url}` nie jest dozwolony. Dodaj go do `allowlist_external_urls` w configuration.yaml."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "blocks_per_ack": "Bloki wysyłane na jedno potwierdzenie",
+          "max_queue_size": "Maksymalna liczba ramek przesyłanych jednocześnie",
+          "missed_cycles": "Przegapione cykle wybudzania przed oznaczeniem jako niedostępne",
+          "probe_before_queue": "Spróbuj połączyć się przed dodaniem do kolejki",
+          "queue_timeout_hours": "Limit czasu oczekiwania zawartości w kolejce (godziny)",
+          "sleep_mode": "Obsługa głębokiego uśpienia"
+        },
+        "data_description": {
+          "blocks_per_ack": "Ile ramek obrazu urządzenie otrzymuje przed wysłaniem jednego potwierdzenia podczas szybkiego przesyłania (sliding-window). Wyższe wartości zmniejszają liczbę rund; wartość efektywna jest ograniczona przez urządzenie i maksymalną liczbę ramek w locie.",
+          "max_queue_size": "Maksymalna liczba ramek obrazu utrzymywanych jednocześnie podczas szybkiego przesyłania (sliding-window). Wyższe wartości zwiększają przepustowość na wolnych (proxy) łączach. Ustaw na 1, aby wyłączyć szybki transfer i użyć klasycznego przesyłania po jednej ramce.",
+          "missed_cycles": "Ile oczekiwanych wybudzeń urządzenie może przegapić, zanim jego encje zostaną oznaczone jako niedostępne.",
+          "probe_before_queue": "Przed dodaniem obrazu do kolejki dla uśpionego urządzenia wykonaj jedną szybką próbę połączenia, na wypadek gdyby było faktycznie aktywne (przegapione reklamy, zawsze włączone radio). Dodaje maksymalnie kilka sekund, gdy urządzenie jest naprawdę uśpione.",
+          "queue_timeout_hours": "Jak długo zawartość oczekująca w kolejce dla uśpionego urządzenia czeka na wybudzenie, zanim wygaśnie.",
+          "sleep_mode": "Automatyczne podąża za własną konfiguracją zasilania urządzenia (zasilanie bateryjne z włączonym głębokim uśpieniem). Wymuś włączone lub wyłączone, aby nadpisać."
+        }
+      }
+    }
+  },
+  "selector": {
+    "dither_mode": {
+      "options": {
+        "atkinson": "Atkinson",
+        "burkes": "Burkes",
+        "floyd_steinberg": "Floyd-Steinberg",
+        "jarvis_judice_ninke": "Jarvis, Judice & Ninke",
+        "none": "Brak",
+        "ordered": "Uporządkowany",
+        "sierra": "Sierra",
+        "sierra_lite": "Sierra Lite",
+        "stucki": "Stucki"
+      }
+    },
+    "fit_mode": {
+      "options": {
+        "contain": "Dopasuj",
+        "cover": "Zakryj",
+        "crop": "Przytnij",
+        "stretch": "Rozciągnij"
+      }
+    },
+    "nfc_record_type": {
+      "options": {
+        "ha_tag": "Tag Home Assistant",
+        "mime": "Dane MIME (np. vCard)",
+        "text": "Tekst",
+        "url": "URL"
+      }
+    },
+    "refresh_mode": {
+      "options": {
+        "fast": "Szybki",
+        "full": "Pełny",
+        "partial": "Częściowy"
+      }
+    },
+    "sleep_mode": {
+      "options": {
+        "auto": "Automatyczny (zgodny z urządzeniem)",
+        "off": "Wymuś wyłączenie",
+        "on": "Wymuś włączenie"
+      }
+    }
+  },
+  "services": {
+    "activate_buzzer": {
+      "description": "Wyzwala dźwięk buzzera na urządzeniu OpenDisplay. Dla melodii wielodźwiękowych zobacz Odtwórz melodię buzzera.",
+      "fields": {
+        "device_id": {
+          "description": "Urządzenie OpenDisplay.",
+          "name": "Urządzenie"
+        },
+        "duration_ms": {
+          "description": "Czas trwania tonu w milisekundach (5-1275).",
+          "name": "Czas trwania"
+        },
+        "frequency_hz": {
+          "description": "Częstotliwość tonu w Hz (0 = cisza, 400-12000).",
+          "name": "Częstotliwość"
+        },
+        "instance": {
+          "description": "Indeks instancji buzzera (liczony od 0).",
+          "name": "Instancja buzzera"
+        },
+        "repeats": {
+          "description": "Liczba powtórzeń tonu (1-255).",
+          "name": "Powtórzenia"
+        }
+      },
+      "name": "Aktywuj buzzer"
+    },
+    "activate_led": {
+      "description": "Wywołuje wzór migania LED na urządzeniu OpenDisplay.",
+      "fields": {
+        "brightness": {
+          "description": "Jasność LED (1-16).",
+          "name": "Jasność"
+        },
+        "color1": {
+          "description": "Kolor pierwszego kroku.",
+          "name": "Kolor 1"
+        },
+        "color2": {
+          "description": "Kolor drugiego kroku (pomiń lub ustaw liczbę błysków na 0, aby pominąć).",
+          "name": "Kolor 2"
+        },
+        "color3": {
+          "description": "Kolor trzeciego kroku (pomiń lub ustaw liczbę błysków na 0, aby pominąć).",
+          "name": "Kolor 3"
+        },
+        "device_id": {
+          "description": "Urządzenie OpenDisplay.",
+          "name": "Urządzenie"
+        },
+        "flash_count1": {
+          "description": "Liczba błysków w pierwszym kroku (0 pomija ten krok).",
+          "name": "Liczba błysków 1"
+        },
+        "flash_count2": {
+          "description": "Liczba błysków w drugim kroku (0 pomija ten krok).",
+          "name": "Liczba błysków 2"
+        },
+        "flash_count3": {
+          "description": "Liczba błysków w trzecim kroku (0 pomija ten krok).",
+          "name": "Liczba błysków 3"
+        },
+        "instance": {
+          "description": "Indeks instancji LED (liczony od 0).",
+          "name": "Instancja LED"
+        },
+        "inter_delay1": {
+          "description": "Opóźnienie po pierwszym kroku przed przejściem do następnego.",
+          "name": "Opóźnienie kroku 1"
+        },
+        "inter_delay2": {
+          "description": "Opóźnienie po drugim kroku przed przejściem do następnego.",
+          "name": "Opóźnienie kroku 2"
+        },
+        "inter_delay3": {
+          "description": "Opóźnienie po trzecim kroku przed powtórzeniem.",
+          "name": "Opóźnienie kroku 3"
+        },
+        "loop_delay1": {
+          "description": "Opóźnienie między błyskami w pierwszym kroku.",
+          "name": "Opóźnienie błysku 1"
+        },
+        "loop_delay2": {
+          "description": "Opóźnienie między błyskami w drugim kroku.",
+          "name": "Opóźnienie błysku 2"
+        },
+        "loop_delay3": {
+          "description": "Opóźnienie między błyskami w trzecim kroku.",
+          "name": "Opóźnienie błysku 3"
+        },
+        "repeats": {
+          "description": "Liczba powtórzeń całego wzoru (0 = nieskończoność).",
+          "name": "Powtórzenia"
+        }
+      },
+      "name": "Aktywuj LED"
+    },
+    "drawcustom": {
+      "description": "Rysuje niestandardowy obraz na jednym lub więcej urządzeniach OpenDisplay.",
+      "fields": {
+        "background": {
+          "description": "Kolor tła.",
+          "name": "Kolor tła"
+        },
+        "dither": {
+          "description": "Algorytm ditheringu do konwersji palety kolorów.",
+          "name": "Tryb ditheringu"
+        },
+        "dry-run": {
+          "description": "Generuj obraz bez przesyłania do urządzenia.",
+          "name": "Symulacja"
+        },
+        "measured_palette": {
+          "description": "Użyj zmierzonej palety kolorów panelu, jeśli dostępna. Wyłącz, aby ditherować względem teoretycznej palety. Brak efektu na panelach bez danych pomiarowych.",
+          "name": "Użyj zmierzonej palety"
+        },
+        "payload": {
+          "description": "Tablica elementów rysunku.",
+          "name": "Dane"
+        },
+        "refresh_type": {
+          "description": "Tryb odświeżania wyświetlacza. Częściowe aktualizacje zmieniają tylko obszar, bez migotania; automatycznie przełącza na pełne odświeżanie, gdy to niemożliwe.",
+          "name": "Typ odświeżania"
+        },
+        "rotate": {
+          "description": "Obrót zgodnie z ruchem wskazówek zegara w stopniach.",
+          "name": "Obrót"
+        }
+      },
+      "name": "Narysuj niestandardowy obraz"
+    },
+    "play_melody": {
+      "description": "Odtwarza melodię wielodźwiękową na buzzerze urządzenia OpenDisplay.",
+      "fields": {
+        "default_length": {
+          "description": "Ułamek nuty (1/2/4/8/16/32) używany przy aktualnym tempie dla nut bez oznaczenia długości; nadpisuje domyślną długość nuty, gdy jest ustawiony.",
+          "name": "Domyślna długość"
+        },
+        "default_note_ms": {
+          "description": "Czas trwania w milisekundach dla nut bez oznaczenia długości, gdy nie jest ustawiona domyślna długość (5-1275).",
+          "name": "Domyślna długość nuty"
+        },
+        "device_id": {
+          "description": "Urządzenie OpenDisplay.",
+          "name": "Urządzenie"
+        },
+        "instance": {
+          "description": "Indeks instancji buzzera (liczony od 0).",
+          "name": "Instancja buzzera"
+        },
+        "notes": {
+          "description": "Kompaktowa melodia: tokeny oddzielone spacjami/przecinkami, każdy `pitch[duration]`. Pitch to nazwa nuty (`A4`, `C#5`, dozwolone bemole i ćwierćtony jak `A4+`), `R` dla pauzy lub surowy indeks 0-255. Długość jest opcjonalna: `:200` dla milisekund bezwzględnych, lub `/4` (ćwierć), `/4.` (kropkowana), `/8t` (tryplet) dla ułamków nut względnych do tempa; pominięcie używa domyślnej długości lub domyślnej długości nuty.",
+          "name": "Nuty"
+        },
+        "repeats": {
+          "description": "Liczba powtórzeń całej melodii (1-255).",
+          "name": "Powtórzenia"
+        },
+        "tempo": {
+          "description": "Uderzenia na minutę; wpływa tylko na długości `/fraction` (40-400).",
+          "name": "Tempo"
+        }
+      },
+      "name": "Odtwórz melodię buzzera"
+    },
+    "upload_image": {
+      "description": "Przesyła obraz do urządzenia OpenDisplay.",
+      "fields": {
+        "device_id": {
+          "description": "Urządzenie OpenDisplay, do którego przesłać obraz.",
+          "name": "Urządzenie"
+        },
+        "dither_mode": {
+          "description": "Algorytm ditheringu do konwersji obrazu na paletę kolorów wyświetlacza.",
+          "name": "Tryb ditheringu"
+        },
+        "fit_mode": {
+          "description": "Sposób dopasowania obrazu do wymiarów wyświetlacza.",
+          "name": "Tryb dopasowania"
+        },
+        "image": {
+          "description": "Obraz do przesłania na wyświetlacz. Wybierz element multimedialny lub podaj bezpośredni URL obrazu (URL musi być dodany do allowlist_external_urls).",
+          "name": "Obraz"
+        },
+        "measured_palette": {
+          "description": "Użyć zmierzonej palety kolorów panelu, jeśli dostępna. Wyłącz, aby stosować dithering względem teoretycznej palety kolorów. Brak efektu na panelach bez danych pomiarowych.",
+          "name": "Użyj zmierzonej palety"
+        },
+        "refresh_mode": {
+          "description": "Tryb odświeżania wyświetlacza. Pełne odświeżanie usuwa efekt duchów, ale jest wolniejsze. Szybkie odświeżanie nie jest obsługiwane na wszystkich wyświetlaczach. Częściowe aktualizuje tylko zmieniony obszar bez migotania (panele B/W z częściowym wsparciem; automatycznie przełącza na pełne odświeżanie, gdy nie jest możliwe).",
+          "name": "Tryb odświeżania"
+        },
+        "rotation": {
+          "description": "Kąt obrotu w stopniach, stosowany zgodnie z ruchem wskazówek zegara.",
+          "name": "Obrót"
+        },
+        "tone_compression": {
+          "description": "Siła kompresji zakresu dynamicznego. Pozostawić puste dla automatycznej wartości.",
+          "name": "Kompresja tonów"
+        }
+      },
+      "name": "Prześlij obraz",
+      "sections": {
+        "additional_fields": {
+          "name": "Dodatkowe opcje"
+        }
+      }
+    },
+    "write_nfc": {
+      "description": "Zapisuje rekord NDEF (URL, tekst lub dane MIME, np. vCard) do chipu NFC urządzenia OpenDisplay.",
+      "fields": {
+        "content": {
+          "description": "Dane do zapisania. Dla rekordu URL - adres URL; dla rekordu tekstowego - tekst; dla rekordu MIME - surowe dane; dla tagu Home Assistant - identyfikator tagu. Ograniczone do 512 bajtów po kodowaniu UTF-8.",
+          "name": "Zawartość"
+        },
+        "device_id": {
+          "description": "Urządzenie OpenDisplay.",
+          "name": "Urządzenie"
+        },
+        "mime_type": {
+          "description": "Typ MIME zawartości. Dotyczy tylko rekordów MIME; domyślnie text/vcard.",
+          "name": "Typ MIME"
+        },
+        "record_type": {
+          "description": "Typ rekordu NDEF do zapisu. Tag Home Assistant zapisuje URL tagu Home Assistant; zeskanowanie go w aplikacji towarzyszącej wywołuje tag_scanned i automatycznie rejestruje tag przy pierwszym skanie.",
+          "name": "Typ rekordu"
+        }
+      },
+      "name": "Zapisz tag NFC"
     }
   }
 }

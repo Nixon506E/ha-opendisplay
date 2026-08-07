@@ -1,0 +1,123 @@
+name: Translate Strings
+
+on:
+  # Only when the English source actually changes. Any other push is a no-op
+  # anyway, since the script would find nothing missing.
+  push:
+    branches:
+      - main
+      - feat/clean-port
+    paths:
+      - 'custom_components/opendisplay/translations/en.json'
+
+  # Allow manual trigger, optionally scoped to specific languages
+  workflow_dispatch:
+    inputs:
+      languages:
+        description: 'Comma-separated language codes (blank = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+  # No 'models: read' here on purpose. GitHub Models access is a Copilot
+  # entitlement, and GITHUB_TOKEN carries the ORGANISATION's entitlement rather
+  # than the triggering user's. This org has no Copilot plan, so the built-in
+  # token gets 403 whatever the permissions say. Translation therefore
+  # authenticates with the MODELS_TOKEN secret; GITHUB_TOKEN still does the
+  # git and pull request work below.
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Translate missing strings
+        id: translate
+        env:
+          # Whichever of these is set decides the provider. OPENROUTER_API_KEY
+          # is preferred; MODELS_TOKEN is a personal access token with
+          # models:read, needed because the org has no Copilot plan and the
+          # built-in GITHUB_TOKEN therefore cannot reach GitHub Models.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
+        run: |
+          python3 scripts/translate.py \
+            ${{ inputs.languages && format('--languages {0}', inputs.languages) || '' }}
+
+      - name: Verify generated files
+        if: steps.translate.outputs.changed == 'true'
+        run: python3 scripts/verify_translations.py
+
+      - name: Close existing automated PR
+        if: steps.translate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing_prs=$(gh pr list --repo "${{ github.repository }}" --head "automated/translations" --state open --json number --jq '.[].number')
+          for pr_number in $existing_prs; do
+            echo "Closing existing PR #$pr_number"
+            gh pr close "$pr_number" --repo "${{ github.repository }}" --comment "Superseded by a newer automated update."
+          done
+
+      - name: Create Pull Request
+        if: steps.translate.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Target whichever branch triggered this run
+          base: ${{ github.ref_name }}
+          commit-message: 'chore: update translations'
+          title: 'chore: update translations'
+          body: |
+            `translations/en.json` changed, so the strings that were missing from
+            each language have been machine-translated. Existing translations
+            were not re-sent to the model.
+
+            ## Changes
+
+            ${{ steps.translate.outputs.summary }}
+
+            ## Review notes
+
+            - Placeholders such as `{name}` and `{number}` are validated
+              automatically: any translation that drops, renames, or adds one is
+              rejected rather than committed.
+            - Translations avoid the familiar/polite distinction (German du/Sie,
+              French tu/vous, ...) by using impersonal phrasing. Anything that
+              slipped through is flagged as a warning in the workflow log.
+            - Manual corrections are preserved. If you fix a translation by hand,
+              this workflow will not overwrite it, even when the English source
+              changes later. It reports it under "Needs review" instead.
+
+            ---
+
+            *This PR was automatically created by the translate workflow*
+          branch: 'automated/translations'
+          delete-branch: true
+          add-paths: |
+            custom_components/opendisplay/translations/
+            .github/translation-state.json
+          labels: |
+            automated
+            translations
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.translate.outputs.changed }}" == "true" ]; then
+            echo "Translations updated - PR opened against ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.translate.outputs.summary }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No missing translations - nothing to do" >> $GITHUB_STEP_SUMMARY
+          fi

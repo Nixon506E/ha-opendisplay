@@ -1,788 +1,416 @@
+"""Integration for OpenDisplay BLE e-paper displays."""
+
 import asyncio
+import contextlib
+from dataclasses import dataclass, field
 import logging
-import os
-from typing import Final
+import time
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.helpers import issue_registry as ir
+from opendisplay import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    BLETimeoutError,
+    GlobalConfig,
+    OpenDisplayDevice,
+    OpenDisplayError,
+    PartialState,
+)
+from opendisplay.models.config_json import config_from_json, config_to_json
+
+from homeassistant.components.bluetooth import (
+    BluetoothReachabilityIntent,
+    async_address_reachability_diagnostics,
+    async_ble_device_from_address,
+    async_set_fallback_availability_interval,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform, EVENT_HOMEASSISTANT_STARTED, CONF_HOST
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import entity_registry as er, device_registry as dr, storage
-from homeassistant.const import __version__ as HA_VERSION
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.typing import ConfigType
-from .ble import BLEDeviceMetadata
-from .const import DOMAIN
-from .coordinator import Hub
-from .runtime_data import OpenDisplayConfigEntry, OpenDisplayBLERuntimeData
+
+from .const import CONF_CACHED_STATE, CONF_ENCRYPTION_KEY, DOMAIN, SETUP_DEADLINE_S
+from .coordinator import OpenDisplayCoordinator
+from .delivery import DeliveryManager
 from .services import async_setup_services
-from .tag_types import get_tag_types_manager
-from .util import is_ble_entry
+from .sleep import SleepProfile
 
-_LOGGER: Final = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from opendisplay.models import FirmwareVersion
 
-PLATFORMS = [
-    Platform.SENSOR,
-    Platform.BUTTON,
+_LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+_BASE_PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.IMAGE,
-    Platform.SELECT,
-    Platform.SWITCH,
-    Platform.TEXT,
+    Platform.SENSOR,
 ]
-
-# BLE devices use a subset of platforms
-BLE_PLATFORMS = [
-    Platform.SENSOR,  # Battery, RSSI, last seen
-    Platform.LIGHT,  # LED control
-    Platform.BUTTON,  # Clock mode controls
-    Platform.IMAGE, # Display content (captured from drawcustom)
-    Platform.UPDATE
+_FLEX_PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.EVENT,
+    Platform.IMAGE,
+    Platform.SENSOR,
+    Platform.UPDATE,
 ]
 
 
-async def async_migrate_camera_entities(hass: HomeAssistant, entry: ConfigEntry) -> list[str]:
-    """Migrate old camera entities to image entities.
+@dataclass
+class OpenDisplayRuntimeData:
+    """Runtime data for an OpenDisplay config entry."""
 
-          Finds and removes camera entities that match our unique ID pattern,
-          returns a list of removed entity IDs for notification.
+    coordinator: OpenDisplayCoordinator
+    firmware: FirmwareVersion
+    device_config: GlobalConfig
+    is_flex: bool
+    # Resolved deep-sleep behavior (options + device power config).
+    sleep_profile: SleepProfile
+    upload_task: asyncio.Task | None = None
+    # Serializes every BLE connection to this tag (one config entry == one MAC).
+    # The device exposes a single BLE link with no per-address lock in the
+    # library, so drawcustom/upload_image, LED, buzzer and OTA must not open
+    # overlapping connections or they race and surface a confusing upload_error.
+    ble_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Tracks the last uploaded frame + etag for differential partial updates
+    # (0x76). Replaced with a fresh instance on every full/fast refresh so the
+    # next partial diffs against the frame actually on the panel.
+    partial_state: PartialState = field(default_factory=PartialState)
+    # Set when the entry was set up from cache without connecting; the delivery
+    # manager re-reads firmware/config at the next wake and refreshes the cache.
+    config_resync_pending: bool = False
+    # Owns queued work delivered at the next wake (set in async_setup_entry).
+    delivery: DeliveryManager | None = None
 
-          Returns:
-              list[str]: List of removed camera entity IDs
+
+type OpenDisplayConfigEntry = ConfigEntry[OpenDisplayRuntimeData]
+
+
+@dataclass
+class _CachedState:
+    """Device state restored from ``entry.data`` for setup-without-connect."""
+
+    firmware: FirmwareVersion
+    is_flex: bool
+    device_config: GlobalConfig
+    landing_url: str | None
+
+
+def _load_cache(entry: OpenDisplayConfigEntry) -> _CachedState | None:
+    """Rebuild cached device state from the config entry, or None if absent."""
+    raw = entry.data.get(CONF_CACHED_STATE)
+    if not raw:
+        return None
+    try:
+        device_config = config_from_json(raw["config"])
+        return _CachedState(
+            firmware=raw["firmware"],
+            is_flex=raw["is_flex"],
+            device_config=device_config,
+            landing_url=raw.get("landing_url"),
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def _write_cache(
+    hass: HomeAssistant,
+    entry: OpenDisplayConfigEntry,
+    device_config: GlobalConfig,
+    firmware: FirmwareVersion,
+    is_flex: bool,
+    landing_url: str | None,
+) -> None:
+    """Persist the device state needed to set up the entry without connecting.
+
+    Called after every successful interrogation (setup and, later, wake-time
+    resync). Writes only when the meaningful contents changed so we don't churn
+    the config-entry store on every reload.
     """
-    entity_registry = er.async_get(hass)
-    removed_entities = []
-
-    # Find camera entities with OpenDisplay domain and content in unique_id
-    camera_entities = []
-    for entity in entity_registry.entities.values():
-        if entity.platform == DOMAIN and entity.domain == "camera" and entity.unique_id.endswith("_content"):
-            camera_entities.append(entity)
-
-    for entity in camera_entities:
-        _LOGGER.info("Removing old camera entity: %s", entity.entity_id)
-        entity_registry.async_remove(entity.entity_id)
-        removed_entities.append(entity.entity_id)
-
-    return removed_entities
-
-
-async def async_remove_clock_mode_buttons(hass: HomeAssistant, entry: ConfigEntry) -> list[str]:
-    """Remove deprecated clock mode button entities.
-
-    Clock mode was a tech demo feature that is no longer supported.
-    This removes the old button entities from the entity registry.
-
-    Returns:
-        list[str]: List of removed button entity IDs
-    """
-    entity_registry = er.async_get(hass)
-    removed_entities = []
-
-    # Find clock mode button entities for this config entry
-    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if entity.unique_id and ("_set_clock_mode" in entity.unique_id or "_disable_clock_mode" in entity.unique_id):
-            _LOGGER.info("Removing deprecated clock mode button: %s", entity.entity_id)
-            entity_registry.async_remove(entity.entity_id)
-            removed_entities.append(entity.entity_id)
-
-    return removed_entities
+    payload: dict[str, Any] = {
+        "config": config_to_json(device_config),
+        "firmware": dict(firmware),
+        "is_flex": is_flex,
+        "landing_url": landing_url,
+    }
+    existing = entry.data.get(CONF_CACHED_STATE)
+    if existing is not None and all(
+        existing.get(key) == value for key, value in payload.items()
+    ):
+        return
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, CONF_CACHED_STATE: {**payload, "cached_at": time.time()}},
+    )
 
 
-async def async_remove_invalid_ble_entities(
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        device_metadata: dict
-) -> list[str]:
-    """Remove BLE entities that are invalid for current device config.
-
-    Checks device configuration and removes entities that shouldn't exist based on
-    current hardware/firmware capabilities:
-    - Battery sensors when power_mode == 2 (USB powered)
-    - Future: LED entities when LED config missing
-    - Future: Sensor entities based on sensor config
-
-    Args:
-        hass: Home Assistant instance
-        entry: Configuration entry
-        device_metadata: Current device metadata with OpenDisplay config
-
-    Returns:
-        list[str]: List of removed entity IDs
-    """
-    entity_registry = er.async_get(hass)
-    removed_entities = []
-    mac_address = entry.data.get("mac_address", "")
-
-    # Check power mode - remove battery sensors if not battery/solar powered
-    from .ble import BLEDeviceMetadata
-    metadata = BLEDeviceMetadata(device_metadata)
-    if metadata.power_mode not in (1, 3):  # Not battery (1) or solar (3)
-        for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-            if entity.unique_id and (
-                    f"opendisplay_ble_{mac_address}_battery_percentage" in entity.unique_id or
-                    f"opendisplay_ble_{mac_address}_battery_voltage" in entity.unique_id
-            ):
-                _LOGGER.info("Removing battery sensor (power_mode=%s): %s", metadata.power_mode, entity.entity_id)
-                entity_registry.async_remove(entity.entity_id)
-                removed_entities.append(entity.entity_id)
-
-    # Future: Check LED config presence and remove LED entity if not present
-    # Future: Check sensor configs and remove/add sensor entities accordingly
-
-    return removed_entities
+def _cache_setup_if_sleepy(
+    entry: OpenDisplayConfigEntry,
+) -> _CachedState | None:
+    """Return cached state iff it exists and resolves to a sleepy device."""
+    cached = _load_cache(entry)
+    if cached is None:
+        return None
+    profile = SleepProfile.from_entry(entry, cached.device_config)
+    if not profile.is_sleepy:
+        return None
+    return cached
 
 
-# async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-#     """
-#     Migrate old config entries to new schema version.
-#
-#     Version 2 -> 3: Add device type and protocol type fields to BLE entries and fix boolean rotate buffer.
-#
-#     Version 3 -> 4: Fix color support.
-#
-#     Returns:
-#         bool: True if migration was successful, False otherwise.
-#     """
-#     _LOGGER.debug(
-#         "Migrating config entry from version %s.%s",
-#         config_entry.version,
-#         config_entry.minor_version,
-#     )
-#     if config_entry.version == 2:
-#         new_data = {**config_entry.data}
-#
-#         # Check if this is a BLE entry
-#         if "mac_address" in config_entry.data:
-#             if "device_type" not in config_entry.data:
-#                 new_data["device_type"] = "ble"
-#                 _LOGGER.info(
-#                     "Adding device_type='ble' to BLE entry %s",
-#                     new_data.get("name", new_data.get("mac_address"))
-#                 )
-#
-#             if "protocol_type" not in config_entry.data:
-#                 new_data["protocol_type"] = "atc"
-#                 _LOGGER.info(
-#                     "Adding protocol_type='atc' to BLE entry %s",
-#                     new_data.get("name", new_data.get("mac_address"))
-#                 )
-#
-#             if "device_metadata" in new_data:
-#                 device_metadata = new_data["device_metadata"]
-#
-#                 if "oepl_config" in device_metadata and "open_display_config" not in device_metadata:
-#                     device_metadata = {
-#                         **device_metadata,
-#                         "open_display_config": device_metadata["oepl_config"],
-#                     }
-#                     new_data["device_metadata"] = device_metadata
-#
-#                 if "open_display_config" not in device_metadata and "rotatebuffer" in device_metadata:
-#                     rotatebuffer_value = device_metadata["rotatebuffer"]
-#
-#                     if isinstance(rotatebuffer_value, bool):
-#                         new_metadata = {**device_metadata, "rotatebuffer": 1}
-#                         new_data["device_metadata"] = new_metadata
-#
-#                         _LOGGER.info(
-#                             "Converting rotatebuffer from %s (bool) to %s (int) for BLE entry %s",
-#                             rotatebuffer_value,
-#                             new_metadata["rotatebuffer"],
-#                             new_data.get("name", new_data.get("mac_address"))
-#                         )
-#
-#         # Update config entry with migrated data and new version
-#         hass.config_entries.async_update_entry(
-#             config_entry,
-#             data=new_data,
-#             version=3,
-#             minor_version=0
-#         )
-#         _LOGGER.info("Successfully migrated config entry to version 3")
-#
-#     if config_entry.version == 3:
-#         new_data = {**config_entry.data}
-#
-#         # Only migrate BLE entries
-#         if "mac_address" in config_entry.data:
-#             device_metadata = dict(new_data.get("device_metadata", {}))
-#
-#             if "oepl_config" in device_metadata and "open_display_config" not in device_metadata:
-#                 device_metadata["open_display_config"] = device_metadata["oepl_config"]
-#                 new_data["device_metadata"] = device_metadata
-#
-#             # OpenDisplay: No migration needed - color scheme is already in open_display_config.displays[0]
-#             # ATC: Need to add color_scheme at root level
-#
-#             if "open_display_config" not in device_metadata and "color_scheme" not in device_metadata:
-#                 hw_type = device_metadata.get("hw_type", 0)
-#                 tag_types_manager = await get_tag_types_manager(hass)
-#
-#                 if tag_types_manager.is_in_hw_map(hw_type):
-#                     tag_type = await tag_types_manager.get_tag_info(hw_type)
-#                     color_table = tag_type.color_table
-#
-#                     _LOGGER.info(
-#                         "Migrating color support for BLE entry %s based on hw_type=%s with colors: %s",
-#                         new_data.get("name", new_data.get("mac_address")),
-#                         hw_type,
-#                         color_table
-#                     )
-#
-#                     if 'yellow' in color_table and 'red' in color_table:
-#                         color_scheme = 3  # BWRY
-#                     elif 'yellow' in color_table:
-#                         color_scheme = 2  # BWY
-#                     elif 'red' in color_table:
-#                         color_scheme = 1  # BWR
-#                     else:
-#                         color_scheme = 0  # BW
-#
-#                     _LOGGER.info(
-#                         "Determined color_scheme=%s for BLE entry %s",
-#                         color_scheme,
-#                         new_data.get("name", new_data.get("mac_address"))
-#                     )
-#                 else:
-#                     # Fallback from old color_support string
-#                     cs = device_metadata.get("color_support", "mono")
-#                     color_scheme = {"red": 1, "yellow": 2, "bwry": 3}.get(cs, 0)
-#                     _LOGGER.info(
-#                         "Fallback color_scheme=%s for BLE entry %s from color_support='%s'",
-#                         color_scheme,
-#                         new_data.get("name", new_data.get("mac_address")),
-#                         cs
-#                     )
-#
-#                 device_metadata["color_scheme"] = color_scheme
-#                 new_data["device_metadata"] = device_metadata
-#
-#                 _LOGGER.info(
-#                     "Adding color_scheme=%s to BLE entry %s",
-#                     color_scheme,
-#                     new_data.get("name", new_data.get("mac_address"))
-#                 )
-#
-#         hass.config_entries.async_update_entry(
-#             config_entry,
-#             data=new_data,
-#             version=4
-#         )
-#         _LOGGER.info("Successfully migrated config entry to version 4")
-#
-#     return True
+def _get_encryption_key(entry: OpenDisplayConfigEntry) -> bytes | None:
+    """Return the encryption key bytes from entry data, or None."""
+    raw = entry.data.get(CONF_ENCRYPTION_KEY)
+    if raw is None:
+        return None
+    if len(raw) != 32:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (bad length); reauthentication required",
+            entry.unique_id,
+        )
+        raise ConfigEntryAuthFailed(
+            "Stored OpenDisplay encryption key is invalid; reauthentication required"
+        )
+    try:
+        return bytes.fromhex(raw)
+    except ValueError as err:
+        _LOGGER.error(
+            "%s: stored encryption key is malformed (not hex); reauthentication required",
+            entry.unique_id,
+        )
+        raise ConfigEntryAuthFailed(
+            "Stored OpenDisplay encryption key is invalid; reauthentication required"
+        ) from err
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the OpenDisplay integration."""
-
-    # Services should be set up unconditionally
-    await async_setup_services(hass)
+    async_setup_services(hass)
     return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) -> bool:
-    """Set up OpenDisplay integration from a config entry.
+    """Set up OpenDisplay from a config entry.
 
-    This is the main entry point for integration initialization, which handles both:
-    - AP-based entries (traditional WebSocket-based integration)
-    - BLE-based entries (direct Bluetooth communication)
-
-    Args:
-        hass: Home Assistant instance
-        entry: Configuration Entry object with connection details
-
-    Returns:
-        bool: True if setup was successful, False otherwise
+    A reachable device is interrogated live (firmware + config) and the result
+    cached. When the device is dark and the cache says it is a deep-sleeping
+    tag, the entry is set up entirely from cache without connecting; the
+    delivery manager re-reads it at the next wake. Any other unreachable case
+    preserves the original ConfigEntryNotReady/ConfigEntryAuthFailed behavior.
     """
-    # Detect BLE vs AP entry type
-    is_ble_device = entry.data.get("device_type") == "ble"
+    address = entry.unique_id
+    if TYPE_CHECKING:
+        assert address is not None
 
-    if is_ble_device:
-        # BLE device setup using simple callback approach
-        _LOGGER.debug("Setting up BLE device entry: %s", entry.data.get("name"))
+    ble_device = async_ble_device_from_address(hass, address, connectable=True)
+    from_cache = False
 
-        from homeassistant.components import bluetooth
-        from .ble import get_protocol_by_name
-        from datetime import datetime, timezone
-
-        mac_address = entry.data.get("mac_address")
-        name = entry.data.get("name")
-        device_metadata = entry.data.get("device_metadata", {})
-        protocol_type = entry.data.get("protocol_type", "atc")  # Default to ATC for backward compatibility
-
-        # Get protocol handler for this device
-        protocol = get_protocol_by_name(protocol_type)
-        _LOGGER.debug("Setting up BLE device with protocol: %s (manufacturer ID: 0x%04X)",
-                      protocol_type, protocol.manufacturer_id)
-
-        # Store BLE device config in runtime_data for entity access
-        ble_data = OpenDisplayBLERuntimeData(
-            mac_address=mac_address,
-            name=name,
-            device_metadata=device_metadata,
-            protocol_type=protocol_type,
-            sensors={},
-        )
-        entry.runtime_data = ble_data
-
-        # Lightweight presence check - only checks cached advertisement data
-        if not bluetooth.async_address_present(hass, mac_address, connectable=False):
+    if ble_device is None:
+        cached = _cache_setup_if_sleepy(entry)
+        if cached is None:
             raise ConfigEntryNotReady(
                 translation_domain=DOMAIN,
-                translation_key="ble_device_not_detected",
-                translation_placeholders={"name": name, "mac_address": mac_address},
-            )
-
-        if entry.data.get("send_welcome_image", False):
-            new_data = dict(entry.data)
-            new_data.pop("send_welcome_image", None)
-            hass.config_entries.async_update_entry(entry, data=new_data)
-
-            hass.async_create_task(
-                    _send_welcome_image(
-                        hass,
-                        entry.entry_id,
-                        name,
-                    )
-                )
-
-        def _ble_device_found(
-                service_info: bluetooth.BluetoothServiceInfoBleak,
-                change: bluetooth.BluetoothChange,
-        ) -> None:
-            """Handle BLE advertising data updates.
-
-            Uses protocol-specific parsing based on the device firmware type.
-            """
-            # Only process the specific device
-            if service_info.address != mac_address:
-                return
-
-            # Parse manufacturer data using protocol-specific parser
-            manufacturer_data = service_info.manufacturer_data.get(protocol.manufacturer_id)
-            if not manufacturer_data:
-                _LOGGER.debug(
-                    "No manufacturer data for 0x%04X on %s (available: %s)",
-                    protocol.manufacturer_id,
-                    mac_address,
-                    service_info.manufacturer_data.keys()
-                )
-                return
-
-            try:
-                advertising_data = protocol.parse_advertising_data(manufacturer_data)
-                if not advertising_data:
-                    _LOGGER.debug("parse_advertising_data returned None for %s", mac_address)
-                    return
-            except Exception as err:
-                _LOGGER.debug("Failed to parse advertising data for %s: %s", mac_address, err, exc_info=True)
-                return
-
-            # Dynamically update device attributes (skip OpenDisplay fw to avoid incorrect value)
-            if advertising_data.fw_version and protocol_type != "open_display":
-                device_registry = dr.async_get(hass)
-                device_entry = device_registry.async_get_device(
-                    identifiers={(DOMAIN, f"ble_{mac_address}")}
-                )
-                new_fw_string = str(advertising_data.fw_version)
-                if device_entry and device_entry.sw_version != new_fw_string:
-                    _LOGGER.debug(
-                        "Device %s firmware updated from %s to %s",
-                        mac_address,
-                        device_entry.sw_version,
-                        new_fw_string,
-                    )
-                    device_registry.async_update_device(
-                        device_entry.id,
-                        sw_version=new_fw_string
-                    )
-
-            # Build sensor data
-            sensor_data = {
-                "battery_percentage": advertising_data.battery_pct,
-                "battery_voltage": advertising_data.battery_mv if advertising_data.battery_mv > 0 else None,
-                "rssi": service_info.rssi,
-                "last_seen": datetime.now(timezone.utc),
-                "temperature": advertising_data.temperature,
-            }
-
-            # Update all registered sensors
-            for sensor in ble_data.sensors.values():
-                sensor.update_from_advertising_data(sensor_data)
-
-        # Remove deprecated clock mode button entities
-        removed_clock_buttons = await async_remove_clock_mode_buttons(hass, entry)
-        if removed_clock_buttons:
-            _LOGGER.info("Removed deprecated clock mode buttons: %s", removed_clock_buttons)
-
-        # Remove invalid entities based on the current device config
-        removed_invalid = await async_remove_invalid_ble_entities(hass, entry, device_metadata)
-        if removed_invalid:
-            _LOGGER.info("Removed invalid BLE entities: %s", removed_invalid)
-
-        # Set up BLE-specific platforms FIRST (before callback registration)
-        # This ensures sensor entities exist before any advertising callbacks fire
-        await hass.config_entries.async_forward_entry_setups(entry, BLE_PLATFORMS)
-
-        # Register BLE advertising listener with protocol-specific manufacturer ID
-        # This must happen AFTER platforms are set up so sensors can receive updates
-        unregister_callback = bluetooth.async_register_callback(
-            hass,
-            _ble_device_found,
-            {"manufacturer_id": protocol.manufacturer_id},
-            bluetooth.BluetoothScanningMode.ACTIVE,
-        )
-
-        entry.async_on_unload(unregister_callback)
-
-    else:
-        # Traditional AP setup
-        _LOGGER.debug("Setting up AP entry: %s", entry.data.get(CONF_HOST, "unknown"))
-
-        hub = Hub(hass, entry)
-
-        # Do basic setup without WebSocket connection
-        # Raises ConfigEntryNotReady if AP is unreachable
-        await hub.async_setup_initial()
-
-        entry.runtime_data = hub
-
-        removed_entities = await async_migrate_camera_entities(hass, entry)
-        if removed_entities:
-            # Inform users via repairs that camera entities were migrated and dashboards need updates
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                f"camera_migration_{entry.entry_id}",
-                is_fixable=False,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="camera_migration_needed",
+                translation_key="device_not_found",
                 translation_placeholders={
-                    "count": str(len(removed_entities)),
-                    "entities": ", ".join(removed_entities),
+                    "address": address,
+                    "reason": async_address_reachability_diagnostics(
+                        hass,
+                        address.upper(),
+                        BluetoothReachabilityIntent.CONNECTION,
+                    ),
                 },
             )
-
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-        async def start_websocket(_):
-            """Start WebSocket connection after HA is fully started."""
-            await hub.async_start_websocket()
-
-        if hass.is_running:
-            # If HA is already running, start WebSocket immediately
-            await hub.async_start_websocket()
-        else:
-            # Otherwise wait for the started event
-            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, start_websocket)
-
-
-    # Listen for changes to options
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
-
-    return True
-
-
-async def async_update_options(hass: HomeAssistant, entry: OpenDisplayConfigEntry) -> None:
-    """Handle updates to integration options.
-
-    Called when the user updates integration options through the UI.
-    Only applies to AP-based entries (BLE devices don't have configurable options).
-
-    Args:
-        hass: Home Assistant instance
-        entry: Updated configuration entry
-    """
-    entry_data = entry.runtime_data
-
-    # Only AP entries have hub with reload_config method
-    if is_ble_entry(entry_data):
-        # BLE devices don't have configurable options yet
-        return
-
-    # Traditional AP entry
-    hub = entry_data
-    await hub.async_reload_config()
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) -> bool:
-    """Unload the integration when removed or restarted.
-
-    Handles both BLE and AP entries with appropriate cleanup.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Configuration entry being unloaded
-
-    Returns:
-        bool: True if unload was successful, False otherwise
-    """
-    entry_data = entry.runtime_data
-
-    # Determine if BLE or AP entry
-    is_ble_device = is_ble_entry(entry_data)
-
-    if is_ble_device:
-        # BLE device cleanup
-        unload_ok = await hass.config_entries.async_unload_platforms(entry, BLE_PLATFORMS)
+        fw = cached.firmware
+        is_flex = cached.is_flex
+        device_config = cached.device_config
+        landing_url = cached.landing_url
+        from_cache = True
     else:
-        # AP entry cleanup
-        hub = entry_data
-        unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        encryption_key = _get_encryption_key(entry)
+        try:
+            # Bound the active connect (connect + interrogate + firmware read) so a
+            # wedged BLE link can't stall setup forever; a breach is treated like
+            # any other connect failure below (sleepy-cache fallback / retry).
+            async with asyncio.timeout(SETUP_DEADLINE_S):
+                async with OpenDisplayDevice(
+                    mac_address=address,
+                    ble_device=ble_device,
+                    encryption_key=encryption_key,
+                ) as device:
+                    fw = await device.read_firmware_version()
+                    is_flex = device.is_flex
+                    # Capture while connected: landing_url() reads the advertised name.
+                    landing_url = device.landing_url()
+            device_config = device.config
+            if TYPE_CHECKING:
+                assert device_config is not None
+        except (AuthenticationFailedError, AuthenticationRequiredError) as err:
+            _LOGGER.warning(
+                "%s: device rejected the encryption key during setup (%s); "
+                "reauthentication required",
+                address,
+                err,
+            )
+            raise ConfigEntryAuthFailed(
+                f"Encryption key rejected by OpenDisplay device: {err}"
+            ) from err
+        except (
+            BLEConnectionError,
+            BLETimeoutError,
+            OpenDisplayError,
+            TimeoutError,
+        ) as err:
+            cached = _cache_setup_if_sleepy(entry)
+            if cached is None:
+                raise ConfigEntryNotReady(
+                    f"Failed to connect to OpenDisplay device: {err}"
+                ) from err
+            fw = cached.firmware
+            is_flex = cached.is_flex
+            device_config = cached.device_config
+            landing_url = cached.landing_url
+            from_cache = True
 
-        if unload_ok:
-            await hub.shutdown()
+    # Imported here rather than at module scope because update.py imports from
+    # this module — a top-level import would be circular. Sharing the formatter
+    # keeps the device registry and the update entity from disagreeing about the
+    # version, which is what makes an update appear permanently pending.
+    from .update import _format_firmware_version
 
-    return unload_ok
+    profile = SleepProfile.from_entry(entry, device_config)
+    coordinator = OpenDisplayCoordinator(hass, address, device_config.binary_inputs)
 
-async def async_remove_config_entry_device(
-        hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
-) -> bool:
-    """Allow manual removal of stale BLE devices."""
-    mac_address = None
-    for domain, ident in device_entry.identifiers:
-        if domain == DOMAIN and ident.startswith("ble_"):
-            mac_address = ident[4:]
-            break
+    manufacturer = device_config.manufacturer
+    display = device_config.displays[0]
+    color_scheme_enum = display.color_scheme_enum
+    color_scheme = (
+        str(color_scheme_enum)
+        if isinstance(color_scheme_enum, int)
+        else color_scheme_enum.name
+    )
+    size = (
+        f'{display.screen_diagonal_inches:.1f}"'
+        if display.screen_diagonal_inches is not None
+        else f"{display.pixel_width}x{display.pixel_height}"
+    )
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_BLUETOOTH, address)},
+        manufacturer=manufacturer.manufacturer_name,
+        model=f"{size} {color_scheme}",
+        sw_version=_format_firmware_version(fw["major"], fw["minor"], fw.get("patch")),
+        hw_version=f"{manufacturer.board_type_name or manufacturer.board_type}"
+        if is_flex
+        else None,
+        configuration_url=landing_url,
+    )
 
-    if not mac_address:
-        return True  # Not a BLE device; let HA delete it.
+    entry.runtime_data = OpenDisplayRuntimeData(
+        coordinator=coordinator,
+        firmware=fw,
+        device_config=device_config,
+        is_flex=is_flex,
+        sleep_profile=profile,
+        config_resync_pending=from_cache,
+    )
 
-    # Lean option: always allow removal so users can clean up.
+    # Persist a fresh interrogation so the next dark startup can set up from
+    # cache; skip when we just loaded from cache (nothing new to store).
+    if not from_cache:
+        _write_cache(hass, entry, device_config, fw, is_flex, landing_url)
+
+    # Keep entities available across sleep cycles: without this, any sleep
+    # interval longer than the ~5 min staleness horizon flaps everything
+    # unavailable once per cycle.
+    if profile.is_sleepy:
+        async_set_fallback_availability_interval(
+            hass, address, profile.availability_interval
+        )
+
+    manager = DeliveryManager(hass, entry)
+    entry.runtime_data.delivery = manager
+
+    await hass.config_entries.async_forward_entry_setups(
+        entry, _get_platforms(entry.runtime_data)
+    )
+    entry.async_on_unload(coordinator.async_start())
+    manager.async_start()
+
+    if from_cache:
+        # Re-read firmware/config on the next wake and refresh the cache.
+        manager.request_config_resync()
+
+    @callback
+    def _schedule_reboot_reload() -> None:
+        """React to the device's advertised reboot edge.
+
+        For sleepy devices the firmware's unpersisted reboot flag makes every
+        wake look like a reboot, and a reconnecting reload races the wake
+        window; route to an opportunistic config resync instead. Non-sleepy
+        devices keep the reload behavior.
+        """
+        if profile.is_sleepy:
+            manager.request_config_resync()
+        else:
+            hass.async_create_task(_async_reload_after_reboot(hass, entry))
+
+    entry.async_on_unload(coordinator.async_subscribe_reboot(_schedule_reboot_reload))
+
     return True
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle complete removal of integration.
-
-    Called when the integration is completely removed from Home Assistant
-    (not during restarts). Performs cleanup of persistent storage files.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Configuration entry being removed
-    """
-    # Only remove shared storage files if this is the last config entry
-    remaining_entries = [
-        config_entry for config_entry in hass.config_entries.async_entries(DOMAIN)
-        if config_entry.entry_id != entry.entry_id
-    ]
-
-    if not remaining_entries:
-        # This was the last entry, safe to remove shared storage
-        await async_remove_storage_files(hass)
+def _get_platforms(runtime_data: OpenDisplayRuntimeData) -> list[Platform]:
+    """Return the platforms to set up for this device."""
+    platforms = list(_FLEX_PLATFORMS if runtime_data.is_flex else _BASE_PLATFORMS)
+    if not runtime_data.is_flex and runtime_data.device_config.touch_controllers:
+        platforms.append(Platform.EVENT)
+    return platforms
 
 
-async def async_remove_storage_files(hass: HomeAssistant) -> None:
-    """Remove persistent storage files when removing integration.
-
-    Cleans up files created by the integration:
-
-    1. Tag types file (open_display_tagtypes.json, legacy)
-    2. Tag storage file (.storage/opendisplay_tags)
-    3. Image directory (www/opendisplay)
-
-    This prevents orphaned files when the integration is removed
-    and ensures a clean reinstallation if needed.
-
-    Args:
-        hass: Home Assistant instance
-    """
-    from .tag_types import reset_tag_types_manager
-
-    storage_dir = hass.config.path(".storage")
-
-    # Remove tag types file
-    tag_types_file = hass.config.path("open_display_tagtypes.json")
-    if await hass.async_add_executor_job(os.path.exists, tag_types_file):
-        try:
-            await hass.async_add_executor_job(os.remove, tag_types_file)
-            _LOGGER.debug("Removed tag types file")
-        except OSError as err:
-            _LOGGER.error("Error removing tag types file: %s", err)
-
-    # Remove tag types storage entry
-    try:
-        await storage.async_remove_store(hass, "opendisplay_tagtypes")
-        await storage.async_remove_store(hass, "open_display_tagtypes")
-        _LOGGER.debug("Removed tag types storage file")
-    except Exception as err:
-        _LOGGER.error("Error removing tag types storage file: %s", err)
-
-    # Remove tag storage file
-    tags_file = os.path.join(storage_dir, f"{DOMAIN}_tags")
-    if await hass.async_add_executor_job(os.path.exists, tags_file):
-        try:
-            await hass.async_add_executor_job(os.remove, tags_file)
-            _LOGGER.debug("Removed tag storage file")
-        except OSError as err:
-            _LOGGER.error("Error removing tag storage file: %s", err)
-
-    # Remove image directory
-    image_dir = hass.config.path("www/opendisplay")
-    if await hass.async_add_executor_job(os.path.exists, image_dir):
-        try:
-            # Get file list in executor
-            files = await hass.async_add_executor_job(os.listdir, image_dir)
-
-            # Remove each file in executor
-            for file in files:
-                file_path = os.path.join(image_dir, file)
-                await hass.async_add_executor_job(os.remove, file_path)
-
-            # Remove directory in executor
-            await hass.async_add_executor_job(os.rmdir, image_dir)
-            _LOGGER.debug("Removed image directory")
-        except OSError as err:
-            _LOGGER.error("Error removing image directory: %s", err)
-
-    # Reset the tag types manager singleton since its storage was deleted
-    reset_tag_types_manager()
-    _LOGGER.debug("Reset tag types manager singleton")
-
-
-
-async def _send_welcome_image(
-        hass: HomeAssistant,
-        entry_id: str,
-        device_name: str,
+async def _async_reload_after_reboot(
+    hass: HomeAssistant, entry: OpenDisplayConfigEntry
 ) -> None:
-    try:
-        for _ in range(10):
-            if hass.services.has_service(DOMAIN, "drawcustom"):
-                break
-            await asyncio.sleep(0.5)
-        else:
-            _LOGGER.debug("Welcome image: drawcustom service not available")
-            return
-        device_registry = dr.async_get(hass)
-        devices = [
-            device
-            for device in device_registry.devices.values()
-            if entry_id in device.config_entries
-        ]
-        for _ in range(20):
-            devices = dr.async_entries_for_config_entry(device_registry, entry_id)
-            if devices:
-                device_id = devices[0].id
-                break
-            await asyncio.sleep(0.5)
+    """Re-read firmware/config after a device reboot by reloading the entry.
 
-        if not device_id:
-            _LOGGER.debug("Welcome image: No devices found for entry %s", entry_id)
-            return
+    Triggered by the coordinator when the advertised reboot flag goes
+    False -> True. Reloading re-runs async_setup_entry, which reconnects (clearing
+    the device's reboot flag), re-reads firmware + config, and rebuilds device
+    info and platforms. Defers until any in-flight BLE operation on this tag
+    (upload, drawcustom, LED, buzzer, OTA) finishes so an unrelated reboot
+    detection does not tear the connection out from under it.
+    """
+    runtime = entry.runtime_data
+    if runtime is not None:
+        # Wait for any in-flight BLE op to release the link, then reload. We only
+        # drain (acquire/release) rather than hold the lock across the reload:
+        # async_reload unloads the entry, and async_unload_entry acquires the
+        # same lock, so holding it here would deadlock the reload.
+        async with runtime.ble_lock:
+            pass
+    await hass.config_entries.async_reload(entry.entry_id)
 
-        device_id = devices[0].id
 
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if not entry:
-            return
+async def async_unload_entry(
+    hass: HomeAssistant, entry: OpenDisplayConfigEntry
+) -> bool:
+    """Unload a config entry."""
+    runtime = entry.runtime_data
+    # Cancel pending deadline timers and any in-flight delivery task, then abort
+    # an in-flight image upload quickly so unload is not blocked on a long BLE
+    # transfer, then wait for any other in-flight BLE op (LED, buzzer, OTA,
+    # drawcustom) to release the link before tearing the entry down.
+    if runtime.delivery is not None:
+        await runtime.delivery.async_shutdown()
+    if (task := runtime.upload_task) and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    async with runtime.ble_lock:
+        pass
 
-        device_metadata = entry.data.get("device_metadata", {})
-
-        metadata = BLEDeviceMetadata(device_metadata)
-
-        width = metadata.width
-        height = metadata.height
-        color_scheme = metadata.color_scheme
-
-        colors = list(color_scheme.palette.colors.keys())
-        use_blue_logo = "blue" in colors
-        ha_logo_url = (
-            "https://openepaperlink.org/HA_blue.png"
-            if use_blue_logo
-            else "https://openepaperlink.org/HA_black.png"
-        )
-        od_logo_url = (
-            "https://openepaperlink.org/OpenDisplay.png"
-            if use_blue_logo
-            else "https://openepaperlink.org/OpenDisplay_black.png"
-        )
-
-        title_y_pct = 10
-        title_size = max(12, int(height * 0.08))
-        logo_y_pct = 40
-        logo_size = max(48, int(height * 0.25))
-        ha_logo_size = max(32, int(logo_size * 0.8))
-        color_box_y_pct = 80
-        color_box_size = max(20, int(height * 0.12))
-
-        payload = [
-            {
-                "type": "text",
-                "value": f"Connected to HA {HA_VERSION}",
-                "x": "50%",
-                "y": f"{title_y_pct}%",
-                "size": title_size,
-                "color": "black",
-                "anchor": "mt",
-                "font": "ppb.ttf",
-            },
-            # Home Assistant logo (left side)
-            {
-                "type": "dlimg",
-                "url": ha_logo_url,
-                "x": int(width * 0.35 - ha_logo_size // 2),
-                "y": int(height * logo_y_pct / 100 - ha_logo_size // 2),
-                "xsize": ha_logo_size,
-                "ysize": ha_logo_size,
-                "resize_method": "contain",
-            },
-            # Bluetooth icon (center)
-            {
-                "type": "icon",
-                "value": "mdi:bluetooth-connect",
-                "x": "50%",  # Center
-                "y": f"{logo_y_pct}%",
-                "size": int(logo_size * 0.5),
-                "color": "black",
-                "anchor": "mm",
-            },
-            # OpenDisplay logo (right side)
-            {
-                "type": "dlimg",
-                "url": od_logo_url,
-                "x": int(width * 0.65 - logo_size // 2),
-                "y": int(height * logo_y_pct / 100 - logo_size // 2),
-                "xsize": logo_size,
-                "ysize": logo_size,
-                "resize_method": "contain",
-            },
-        ]
-
-        num_colors = len(colors)
-        spacing = 5
-        total_width = num_colors * color_box_size + (num_colors - 1) * spacing
-        start_x = (width - total_width) // 2
-        box_y = int(height * color_box_y_pct / 100)
-
-        for i, color in enumerate(colors):
-            box_x = start_x + i * (color_box_size + spacing)
-            payload.append({
-                "type": "rectangle",
-                "x_start": box_x,
-                "y_start": box_y,
-                "x_end": box_x + color_box_size,
-                "y_end": box_y + color_box_size,
-                "fill": color,
-                "outline": "black",
-                "width": 1,
-            })
-
-        _LOGGER.debug("Sending welcome image to %s", device_name)
-        await hass.services.async_call(
-            DOMAIN,
-            "drawcustom",
-            {
-                "device_id": device_id,
-                "payload": payload,
-                "background": "white",
-                "rotate": 0,
-                "dither": 2,
-                "ttl": 60,
-            },
-            blocking=False,
-        )
-
-    except Exception as err:
-        _LOGGER.debug("Welcome image failed: %s", err, exc_info=True)
+    return await hass.config_entries.async_unload_platforms(
+        entry, _get_platforms(runtime)
+    )
