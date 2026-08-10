@@ -90,6 +90,9 @@
       "battery_voltage": {
         "name": "Tensione batteria"
       },
+      "chip_temperature": {
+        "name": "Temperatura del chip"
+      },
       "last_seen": {
         "name": "Ultimo rilevamento"
       },

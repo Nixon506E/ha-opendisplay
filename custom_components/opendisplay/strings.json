@@ -117,6 +117,9 @@
       }
     },
     "sensor": {
+      "chip_temperature": {
+        "name": "Chip temperature"
+      },
       "battery_voltage": {
         "name": "Battery voltage"
       },

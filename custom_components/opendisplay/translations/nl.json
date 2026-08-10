@@ -90,6 +90,9 @@
       "battery_voltage": {
         "name": "Batterijspanning"
       },
+      "chip_temperature": {
+        "name": "Chiptemperatuur"
+      },
       "last_seen": {
         "name": "Laatst gezien"
       },
