@@ -21,11 +21,15 @@ from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     UnitOfElectricPotential,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
+import homeassistant.util.dt as dt_util
 
 from . import OpenDisplayConfigEntry
 from .coordinator import OpenDisplayUpdate
@@ -37,6 +41,7 @@ PARALLEL_UPDATES = 0
 @dataclass(frozen=True, kw_only=True)
 class OpenDisplaySensorEntityDescription(SensorEntityDescription):
     """Describes an OpenDisplay sensor entity."""
+
     value_fn: Callable[[OpenDisplayUpdate], float | int | str | datetime | None]
 
 
@@ -147,7 +152,7 @@ def _entity_for_description(
     # often than the device's own wake cadence. Keep showing the last known
     # value (and stay available) across Bluetooth gaps instead of flashing
     # unavailable.
-    if description.key in {"battery", "battery_voltage"}:
+    if description.key in {"battery", "battery_voltage", "rssi", "temperature"}:
         return OpenDisplayStickySensorEntity(coordinator, description)
     return OpenDisplaySensorEntity(coordinator, description)
 
@@ -206,15 +211,15 @@ class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
         return self.entity_description.value_fn(self.coordinator.data)
 
 
-class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
+class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity, RestoreEntity):
     """A sensor that keeps its last known value once observed.
-
+    
     Some readings (e.g. battery) only ride in the advertisement and can go
     a long time between updates. Rather than flashing "unavailable" whenever
     Bluetooth briefly loses the device, cache the last non-None value and
     stay available.
     """
-
+    
     def __init__(
         self,
         coordinator,
@@ -223,12 +228,12 @@ class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
         """Initialize the sticky sensor."""
         super().__init__(coordinator, description)
         self._last_value: float | int | str | datetime | None = None
-
+    
     @property
     def available(self) -> bool:
         """Stay available once a value has been observed."""
         return self._last_value is not None or super().available
-
+    
     @property
     def native_value(self) -> float | int | str | datetime | None:
         """Return the last known value, updating it if a fresh one is present."""
@@ -237,6 +242,18 @@ class OpenDisplayStickySensorEntity(OpenDisplaySensorEntity):
             if value is not None:
                 self._last_value = value
         return self._last_value
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the previous value until Bluetooth has one."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is None:
+            return
+        if last_state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+            return
+        if self.device_class == SensorDeviceClass.TIMESTAMP:
+            self._last_value = dt_util.parse_datetime(last_state.state)
+        else:
+            self._last_value = last_state.state
 
 
 class OpenDisplayLastSeenSensorEntity(OpenDisplayStickySensorEntity):
