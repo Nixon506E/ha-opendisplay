@@ -1,12 +1,14 @@
 """Unit tests for the _async_send_image sleep gate and probe-before-queue.
 
 Mirrors the test_delivery.py approach: no Home Assistant test harness; the
-service module's HA/BLE touchpoints (``prepare_image``, ``_pil_to_jpeg``,
-``async_dispatcher_send``, ``async_ble_device_from_address`` and
-``OpenDisplayDevice``) are patched in the services module namespace.
+service module's HA touchpoints (``prepare_image``, ``_pil_to_jpeg``,
+``async_dispatcher_send``) are patched in the services module namespace, while the
+connection touchpoints (``async_ble_device_from_address`` and ``OpenDisplayDevice``)
+are patched in the transport module namespace, where the resolver now calls them.
 """
 
 import asyncio
+import logging
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,6 +21,8 @@ import voluptuous as vol
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from custom_components.opendisplay import services as services_mod
+from custom_components.opendisplay import transport as transport_mod
+from custom_components.opendisplay.ble_lock import ble_connection
 from custom_components.opendisplay.const import (
     CONF_BLOCKS_PER_ACK,
     CONF_MAX_QUEUE_SIZE,
@@ -66,7 +70,6 @@ def _make_env(profile=None, last_seen=None, options=None):
         sleep_profile=profile,
         delivery=manager,
         device_config=None,
-        ble_lock=asyncio.Lock(),
         partial_state=MagicMock(),
     )
     entry = MagicMock()
@@ -124,9 +127,9 @@ def _patches(od_factory, ble_device="ble-device"):
         patch.object(services_mod, "_pil_to_jpeg", return_value=b"jpeg"),
         patch.object(services_mod, "async_dispatcher_send"),
         patch.object(
-            services_mod, "async_ble_device_from_address", return_value=ble_device
+            transport_mod, "async_ble_device_from_address", return_value=ble_device
         ),
-        patch.object(services_mod, "OpenDisplayDevice", od_factory),
+        patch.object(transport_mod, "OpenDisplayDevice", od_factory),
     )
 
 
@@ -499,6 +502,56 @@ def test_schema_play_melody_rejects_pipe():
     """The reserved multi-pattern separator is rejected at schema time."""
     with pytest.raises(vol.Invalid):
         SCHEMA_PLAY_MELODY({"device_id": "dev-1", "notes": "A4 | C5"})
+
+
+@pytest.mark.asyncio
+async def test_live_send_waits_for_preheld_registry_lock(caplog):
+    """A live send queued behind a pre-held per-MAC lock warns and waits."""
+    caplog.set_level(logging.WARNING, logger="custom_components.opendisplay.ble_lock")
+    hass, entry, _, _ = _make_env(profile=_profile(sleep_mode="off"), last_seen=None)
+    device = MagicMock()
+    device.upload_prepared_image = AsyncMock()
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def _hold() -> None:
+        async with ble_connection(ADDRESS, "external holder"):
+            order.append("holder-enter")
+            await release.wait()
+            order.append("holder-exit")
+
+    def _od_factory(**kwargs):
+        class _Ctx:
+            async def __aenter__(self):
+                order.append("send-connect")
+                return device
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
+
+    p1, p2, p3, p4, p5 = _patches(MagicMock(side_effect=_od_factory))
+    with p1, p2, p3, p4, p5:
+        holder = asyncio.create_task(_hold())
+        while "holder-enter" not in order:
+            await asyncio.sleep(0)
+        send = asyncio.create_task(_send(hass, entry))
+        # The send must block on the held lock before it ever connects.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert "send-connect" not in order
+        release.set()
+        receipt, _ = await asyncio.gather(send, holder)
+
+    assert order == ["holder-enter", "holder-exit", "send-connect"]
+    assert receipt.status == "delivered"
+    warnings = [
+        r for r in caplog.records
+        if r.name == "custom_components.opendisplay.ble_lock"
+        and r.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
 
 
 if __name__ == "__main__":

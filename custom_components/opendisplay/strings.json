@@ -5,6 +5,7 @@
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
+      "no_mac": "The discovered device did not advertise a MAC address and cannot be set up.",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
@@ -18,6 +19,10 @@
     "step": {
       "bluetooth_confirm": {
         "description": "[%key:component::bluetooth::config::step::bluetooth_confirm::description%]"
+      },
+      "zeroconf_confirm": {
+        "description": "Do you want to set up {name}, discovered over WiFi?",
+        "title": "OpenDisplay device found"
       },
       "encryption_key": {
         "data": {
@@ -76,6 +81,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Update pending"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "image": {
@@ -367,7 +375,7 @@
         },
         "frequency_hz": {
           "name": "Frequency",
-          "description": "Tone frequency in Hz (0 = silence, 400-12000)."
+          "description": "Tone frequency in Hz (0 = silence). Played as the nearest quarter-tone note; frequencies outside the buzzer's playable range are shifted by octaves to fit."
         },
         "duration_ms": {
           "name": "Duration",
