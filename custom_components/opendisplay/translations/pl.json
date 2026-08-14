@@ -5,6 +5,7 @@
       "already_in_progress": "Proces konfiguracji jest już w toku",
       "cannot_connect": "Nie udało się połączyć",
       "no_devices_found": "Nie znaleziono urządzeń w sieci",
+      "no_mac": "Wykryte urządzenie nie reklamowało adresu MAC i nie można go skonfigurować.",
       "reauth_successful": "Ponowna autoryzacja zakończona sukcesem",
       "unknown": "Nieoczekiwany błąd"
     },
@@ -47,6 +48,10 @@
           "address": "Wybierz urządzenie Bluetooth do konfiguracji."
         },
         "description": "Wybierz urządzenie do konfiguracji"
+      },
+      "zeroconf_confirm": {
+        "description": "Skonfigurować {name} wykryte przez WiFi?",
+        "title": "Znaleziono urządzenie OpenDisplay"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Aktualizacja oczekuje"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Czas trwania"
         },
         "frequency_hz": {
-          "description": "Częstotliwość tonu w Hz (0 = cisza, 400-12000).",
+          "description": "Częstotliwość tonu w Hz (0 = cisza). Odtwarzane jako najbliższy dźwięk ćwierćtonowy; częstotliwości poza zakresem buzzera są przesuwane o oktawy, aby się zmieścić.",
           "name": "Częstotliwość"
         },
         "instance": {

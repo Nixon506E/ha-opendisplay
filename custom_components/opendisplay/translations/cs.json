@@ -5,6 +5,7 @@
       "already_in_progress": "Konfigurační proces již probíhá",
       "cannot_connect": "Nepodařilo se připojit",
       "no_devices_found": "Na síti nebyla nalezena žádná zařízení",
+      "no_mac": "Nalezené zařízení neoznamovalo MAC adresu a nelze jej nastavit.",
       "reauth_successful": "Znovuověření bylo úspěšné",
       "unknown": "Neočekávaná chyba"
     },
@@ -47,6 +48,10 @@
           "address": "Vybrat Bluetooth zařízení k nastavení."
         },
         "description": "Vybrat zařízení k nastavení"
+      },
+      "zeroconf_confirm": {
+        "description": "Nastavit {name} nalezené přes WiFi?",
+        "title": "Nalezeno zařízení OpenDisplay"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Čeká na aktualizaci"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Doba trvání"
         },
         "frequency_hz": {
-          "description": "Frekvence tónu v Hz (0 = ticho, 400-12000).",
+          "description": "Frekvence tónu v Hz (0 = ticho). Přehrává se jako nejbližší čtvrttón; frekvence mimo rozsah bzučáku jsou posunuty o oktávy, aby se vešly.",
           "name": "Frekvence"
         },
         "instance": {

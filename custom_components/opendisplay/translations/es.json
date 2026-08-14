@@ -5,6 +5,7 @@
       "already_in_progress": "El flujo de configuración ya está en curso",
       "cannot_connect": "Error al conectar",
       "no_devices_found": "No se encontraron dispositivos en la red",
+      "no_mac": "El dispositivo descubierto no anunció una dirección MAC y no se puede configurar.",
       "reauth_successful": "La reautenticación fue exitosa",
       "unknown": "Error inesperado"
     },
@@ -47,6 +48,10 @@
           "address": "Seleccionar el dispositivo Bluetooth para configurar."
         },
         "description": "Elegir un dispositivo para configurar"
+      },
+      "zeroconf_confirm": {
+        "description": "Configurar {name}, descubierto por WiFi?",
+        "title": "Dispositivo OpenDisplay encontrado"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Actualización pendiente"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Duración"
         },
         "frequency_hz": {
-          "description": "Frecuencia del tono en Hz (0 = silencio, 400-12000).",
+          "description": "Frecuencia del tono en Hz (0 = silencio). Se reproduce como la nota más cercana en cuartos de tono; las frecuencias fuera del rango reproducible del zumbador se ajustan por octavas para encajar.",
           "name": "Frecuencia"
         },
         "instance": {

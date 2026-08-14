@@ -5,6 +5,7 @@
       "already_in_progress": "Fluxo de configuração já em andamento",
       "cannot_connect": "Falha ao conectar",
       "no_devices_found": "Nenhum dispositivo encontrado na rede",
+      "no_mac": "O dispositivo descoberto não anunciou um endereço MAC e não pode ser configurado.",
       "reauth_successful": "Reautenticação bem-sucedida",
       "unknown": "Erro inesperado"
     },
@@ -47,6 +48,10 @@
           "address": "Selecione o dispositivo Bluetooth para configurar."
         },
         "description": "Escolher um dispositivo para configurar"
+      },
+      "zeroconf_confirm": {
+        "description": "Configurar {name}, descoberto via WiFi?",
+        "title": "Dispositivo OpenDisplay encontrado"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Atualização pendente"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Duração"
         },
         "frequency_hz": {
-          "description": "Frequência do tom em Hz (0 = silêncio, 400-12000).",
+          "description": "Frequência do tom em Hz (0 = silêncio). Reproduzido como a nota mais próxima em quartas de tom; frequências fora da faixa tocável do buzzer são ajustadas por oitavas para se encaixar.",
           "name": "Frequência"
         },
         "instance": {
