@@ -5,6 +5,7 @@
       "already_in_progress": "Konfigurationsvorgang läuft bereits",
       "cannot_connect": "Verbindung fehlgeschlagen",
       "no_devices_found": "Keine Geräte im Netzwerk gefunden",
+      "no_mac": "Das gefundene Gerät hat keine MAC-Adresse gesendet und kann nicht eingerichtet werden.",
       "reauth_successful": "Re-Authentifizierung war erfolgreich",
       "unknown": "Unerwarteter Fehler"
     },
@@ -47,6 +48,10 @@
           "address": "Bluetooth-Gerät zur Einrichtung auswählen."
         },
         "description": "Gerät zur Einrichtung auswählen"
+      },
+      "zeroconf_confirm": {
+        "description": "OpenDisplay {name} über WiFi einrichten?",
+        "title": "OpenDisplay-Gerät gefunden"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Update ausstehend"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Dauer"
         },
         "frequency_hz": {
-          "description": "Tonfrequenz in Hz (0 = Stille, 400-12000).",
+          "description": "Tonfrequenz in Hz (0 = Stille). Wird als nächster Viertelton gespielt; Frequenzen außerhalb des spielbaren Bereichs des Buzzers werden oktaviert angepasst.",
           "name": "Frequenz"
         },
         "instance": {
