@@ -1,0 +1,139 @@
+[project]
+name = "opendisplay-homeassistant"
+version = "0.0.0"
+description = "OpenDisplay Home Assistant custom integration"
+# 3.14.2 is homeassistant's floor; PHCC's own metadata only claims >=3.14.
+requires-python = ">=3.14.2"
+
+# Mirrors custom_components/opendisplay/manifest.json "requirements". Everything
+# else the integration imports (aiohttp, voluptuous, PIL) is supplied by Home
+# Assistant itself, which the test dependency groups pin transitively.
+dependencies = [
+    "py-opendisplay[silabs-ota]==7.15.0",
+    "odl-renderer==0.5.12",
+]
+
+[dependency-groups]
+# One group per CI matrix leg. pytest-homeassistant-custom-component pins an
+# exact homeassistant version (and pytest, syrupy, freezegun, SQLAlchemy, ...)
+# per release, so never re-pin those here -- picking the PHCC version *is*
+# picking the HA version being tested against.
+#
+#   0.13.356 -> homeassistant 2026.8.2  (latest)
+#   0.13.344 -> homeassistant 2026.7.0  (the hacs.json floor)
+#
+# The three extras below are Home Assistant *component* requirements. HA
+# installs those at runtime from each component's own manifest.json, so they
+# are invisible to uv -- but the tests set up the real bluetooth, http and
+# recorder components, so they have to be installed. These three are the ones
+# that are not already pulled in transitively by py-opendisplay/PHCC:
+#
+#   aiousbwatcher, serialx  components/bluetooth imports components/usb, which
+#                           imports both at module scope
+#   dbus-fast               PHCC's mock_bluetooth_adapters forces the *Linux*
+#                           adapter path even on macOS, so BlueZDBusObjects is
+#                           constructed for real; without it bluetooth setup
+#                           dies on `NoneType is not callable`
+#
+# They are deliberately unpinned: uv.lock is what pins them for CI, and letting
+# the resolver track the PHCC-pinned HA is what keeps the two legs honest.
+# If a future HA bump adds another such import, `scripts/ha-component-reqs`
+# prints the full component requirement set to compare against.
+dev = [
+    "pytest-homeassistant-custom-component==0.13.356",
+    "ruff==0.15.17",
+    "mypy==1.18.2",
+    "aiousbwatcher",
+    "serialx",
+    "dbus-fast",
+]
+min-ha = [
+    "pytest-homeassistant-custom-component==0.13.344",
+    "ruff==0.15.17",
+    "mypy==1.18.2",
+    "aiousbwatcher",
+    "serialx",
+    "dbus-fast",
+    # 2026.7.0 only: components/usb imports serialx's esphome transport
+    # eagerly (2026.8.x defers it), which drags in aioesphomeapi.
+    "aioesphomeapi",
+]
+
+[tool.uv]
+package = false
+# The two legs pin conflicting homeassistant versions; declaring them as
+# mutually exclusive lets `uv lock` resolve both into a single uv.lock.
+conflicts = [[{ group = "dev" }, { group = "min-ha" }]]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+norecursedirs = [".git", ".venv", "config"]
+addopts = "--cov=custom_components.opendisplay --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["custom_components/opendisplay"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+target-version = "py314"
+exclude = [".venv", "config", "scripts"]
+
+[tool.ruff.lint]
+# A subset of Home Assistant core's ruleset -- the rules that matter for an
+# integration without turning this into a lint-cleanup project.
+select = [
+    "ASYNC", # flake8-async
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "D",     # pydocstyle
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "FLY",   # flynt
+    "G",     # flake8-logging-format
+    "I",     # isort
+    "ISC",   # flake8-implicit-str-concat
+    "LOG",   # flake8-logging
+    "PGH",   # pygrep-hooks
+    "PIE",   # flake8-pie
+    "PT",    # flake8-pytest-style
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "RUF",   # ruff-specific
+    "SIM",   # flake8-simplify
+    "SLOT",  # flake8-slots
+    "T20",   # flake8-print
+    "TID",   # tidy imports
+    "TRY",   # tryceratops
+    "UP",    # pyupgrade
+    "W",     # pycodestyle warnings
+]
+ignore = [
+    "D202",   # No blank lines allowed after function docstring
+    "D203",   # 1 blank line required before class docstring
+    "D213",   # Multi-line docstring summary should start at the second line
+    "D406",   # Section name should end with a newline
+    "D407",   # Section name underlining
+    "E501",   # line too long -- ruff format owns line length
+    "TRY003", # Avoid specifying long messages outside the exception class
+    "TRY300", # Consider moving this statement to an `else` block
+    "TRY400", # Use `logging.exception` instead of `logging.error`
+]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components", "tests"]
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.ruff.lint.per-file-ignores]
+# Vendored verbatim from Home Assistant core's test helpers.
+"tests/bluetooth.py" = ["D"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
