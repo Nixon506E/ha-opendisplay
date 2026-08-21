@@ -1,0 +1,27 @@
+name: Release Zip
+
+# HACS reads assets[0].download_count from the release. With zip_release set in
+# hacs.json, HACS installs from this zip instead of the source tree, which is what
+# makes the download count exist at all. See docs/hacs-download-count.md.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload-zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create zip
+        run: |
+          cd custom_components/opendisplay
+          zip opendisplay.zip -r ./
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ github.workspace }}/custom_components/opendisplay/opendisplay.zip
