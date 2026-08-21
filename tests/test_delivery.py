@@ -469,8 +469,13 @@ async def test_key_invalid_sets_auth_error_and_notifies():
 
 
 @pytest.mark.asyncio
-async def test_mdns_and_post_probe_notifies_are_gated():
-    """Every wake route goes through _has_pending_work, so all are gated."""
+async def test_all_wake_sources_share_the_same_gate():
+    """Every wake route funnels through notify_device_seen, so one gate covers all.
+
+    ``source`` is only a log label; the BLE, mDNS
+    (``transport.async_notify_host_seen``) and post-probe (``services``) callers
+    all reach this same method, which is where the gate lives.
+    """
     hass, entry, _ = _make_env()
     with _auth_patches(AuthenticationFailedError("bad key")):
         mgr = DeliveryManager(hass, entry)
@@ -481,6 +486,31 @@ async def test_mdns_and_post_probe_notifies_are_gated():
         for source in ("ble", "mdns", "post-probe"):
             mgr.notify_device_seen(source)
         entry.async_create_background_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_after_expiry_reports_auth_not_stale_expiry():
+    """auth failure -> slot expires -> new content: the error must read "auth".
+
+    ``_expire_upload`` overwrites ``last_error`` with "expired", so simply
+    declining to clear it on submit would report a stale expiry against a
+    brand-new pending upload.
+    """
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        await mgr._deliver()
+
+        mgr._expire_upload(mgr._pending_upload)
+        assert mgr.state.last_error == "expired"
+
+        _submit(mgr, device_id="dev2")
+
+    assert mgr.state.pending is True
+    assert mgr.state.auth_paused is True
+    assert mgr.state.last_error == "auth"
+    assert mgr._has_pending_work() is False
 
 
 @pytest.mark.asyncio

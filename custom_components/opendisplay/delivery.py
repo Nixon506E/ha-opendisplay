@@ -221,12 +221,14 @@ class DeliveryManager:
         )
         self._schedule_expiry(slot)
         self._pending_upload = slot
-        if not self._auth_paused:
-            # Queuing new content must not make a paused manager look healthy.
-            # It also must not resume connection attempts: the pause is
-            # automation-proof by design (a frame-changing automation would
-            # otherwise re-arm the storm before every advertisement).
-            self._last_error = None
+        # Queuing new content must not make a paused manager look healthy, and
+        # must not resume connection attempts: the pause is automation-proof by
+        # design (a frame-changing automation would otherwise re-arm the storm
+        # before every advertisement). Restore "auth" rather than merely keeping
+        # the current value -- the previous slot's expiry timer may have already
+        # overwritten it with "expired", which would otherwise be reported
+        # against this brand-new upload.
+        self._last_error = "auth" if self._auth_paused else None
         # Show the intended frame immediately (the image entity now reflects
         # what will be delivered, not what is on the panel).
         async_dispatcher_send(
