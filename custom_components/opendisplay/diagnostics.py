@@ -51,6 +51,7 @@ async def async_get_config_entry_diagnostics(
             "expires_at": state.expires_at,
             "attempts": state.attempts,
             "last_error": state.last_error,
+            "auth_paused": state.auth_paused,
         }
 
     # Transport diagnostics: WiFi/LAN endpoint (host/port/tls are not secret; the

@@ -57,6 +57,7 @@ class OpenDisplayImageEntity(ImageEntity):
         self._pending: bool = False
         self._queued_at: float | None = None
         self._last_error: str | None = None
+        self._auth_paused: bool = False
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -65,6 +66,9 @@ class OpenDisplayImageEntity(ImageEntity):
             "pending": self._pending,
             "queued_at": _to_iso(self._queued_at),
             "last_error": self._last_error,
+            # Authoritative: an expiring slot can overwrite last_error with
+            # "expired" while delivery is still blocked on authentication.
+            "auth_paused": self._auth_paused,
         }
 
     async def async_image(self) -> bytes | None:
@@ -102,4 +106,5 @@ class OpenDisplayImageEntity(ImageEntity):
         self._pending = snapshot.pending
         self._queued_at = snapshot.queued_at
         self._last_error = snapshot.last_error
+        self._auth_paused = snapshot.auth_paused
         self.async_write_ha_state()

@@ -9,10 +9,16 @@ namespace, since the resolver owns the connect/fallback flow.
 
 import asyncio
 import logging
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from opendisplay import AuthenticationFailedError, BLEConnectionError, RefreshMode
+from opendisplay import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    RefreshMode,
+)
 import pytest
 
 from homeassistant.exceptions import HomeAssistantError
@@ -22,12 +28,15 @@ from custom_components.opendisplay import transport as transport_mod
 from custom_components.opendisplay.ble_lock import async_get_ble_lock, ble_connection
 from custom_components.opendisplay.const import (
     CONF_BLOCKS_PER_ACK,
+    CONF_ENCRYPTION_KEY,
     CONF_MAX_QUEUE_SIZE,
     DEFAULT_BLOCKS_PER_ACK,
     DEFAULT_MAX_QUEUE_SIZE,
     EVENT_CONTENT_DELIVERED,
     EVENT_CONTENT_EXPIRED,
+    SIGNAL_PENDING_STATE,
 )
+from custom_components.opendisplay.binary_sensor import OpenDisplayUpdatePendingSensor
 from custom_components.opendisplay.delivery import DeliveryManager
 from custom_components.opendisplay.sleep import SleepProfile
 
@@ -308,29 +317,194 @@ async def test_drain_gives_up_after_max_attempts():
     assert expired[0]["attempts"] == delivery_mod.MAX_DELIVERY_ATTEMPTS
 
 
-@pytest.mark.asyncio
-async def test_drain_auth_failure_pauses_and_starts_reauth():
-    hass, entry, _ = _make_env()
+@contextmanager
+def _auth_patches(exc):
+    """Patch a drain so the connection attempt fails authentication with ``exc``."""
     with (
         patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
         patch.object(delivery_mod, "async_dispatcher_send"),
         patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod,
-            "OpenDisplayDevice",
-            side_effect=_raising_device_ctx(AuthenticationFailedError("bad key")),
-        ),
+        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_raising_device_ctx(exc)),
     ):
+        yield
+
+
+@pytest.mark.asyncio
+async def test_drain_auth_failure_pauses_and_starts_reauth():
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
         mgr = DeliveryManager(hass, entry)
         _submit(mgr)
         await mgr._deliver()
 
+    # The slot survives (a reload drops it); what stops the retry is the
+    # manager-wide pause, not a per-slot flag.
     assert mgr._pending_upload is not None
-    assert mgr._pending_upload.paused is True
+    assert mgr._auth_paused is True
+    assert mgr.state.auth_paused is True
     assert mgr.state.last_error == "auth"
     entry.async_start_reauth.assert_called_once()
-    # A paused slot is not retried on the next wake.
     assert mgr._has_pending_work() is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc",
+    [
+        AuthenticationFailedError("wrong key"),
+        # Issue #91's real case: firmware status 0x03 (encryption not configured)
+        # surfaces as AuthenticationRequiredError, not AuthenticationFailedError.
+        AuthenticationRequiredError("device has no encryption configured"),
+    ],
+    ids=["failed", "required"],
+)
+async def test_auth_failure_stops_resync_only_retry_loop(exc):
+    """Regression for issue #91.
+
+    With only a config resync queued, the old handler paused nothing at all, so
+    ``_has_pending_work()`` stayed True and the next advertisement immediately
+    started another identical, doomed session.
+    """
+    hass, entry, _ = _make_env()
+    with _auth_patches(exc):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        assert mgr._has_pending_work() is True
+        await mgr._deliver()
+
+        # The work is still queued, but it is no longer deliverable...
+        assert mgr._pending_config_resync is True
+        assert mgr._has_pending_work() is False
+
+        # ...so the next advertisement starts no second session.
+        entry.async_create_background_task.reset_mock()
+        mgr.notify_device_seen("ble")
+        entry.async_create_background_task.assert_not_called()
+        assert mgr._delivering is False
+
+
+@pytest.mark.asyncio
+async def test_submit_does_not_bypass_auth_pause():
+    """New content must not re-arm the storm while the pause stands.
+
+    ``submit_upload`` is routinely automation-driven, so clearing the pause there
+    would let a frame-changing automation restart delivery on every wake.
+    """
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        await mgr._deliver()
+
+        _submit(mgr, device_id="dev2")
+
+    assert mgr._pending_upload is not None
+    assert mgr._has_pending_work() is False
+    # auth_paused is the authoritative signal; last_error is best-effort (an
+    # expiring slot can overwrite it with "expired").
+    assert mgr.state.auth_paused is True
+    assert mgr.state.last_error == "auth"
+
+
+@pytest.mark.asyncio
+async def test_config_resync_request_does_not_unblock_auth():
+    """The reboot edge fires on every wake for sleepy devices.
+
+    Clearing the pause in ``request_config_resync`` would therefore reopen the
+    exact loop this fix closes.
+    """
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        await mgr._deliver()
+
+        mgr.request_config_resync()
+
+    assert mgr._auth_paused is True
+    assert mgr._has_pending_work() is False
+
+
+@pytest.mark.asyncio
+async def test_malformed_key_pauses_and_does_not_loop():
+    """A malformed stored key returns normally, so it needs the same pause.
+
+    ``_drain_once`` bails out on the ``_KEY_INVALID`` sentinel without raising,
+    which previously left the work deliverable and retried it every wake.
+    """
+    hass, entry, _ = _make_env(entry_data={CONF_ENCRYPTION_KEY: "not-32-chars"})
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send"),
+    ):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        await mgr._deliver()
+
+        assert mgr._has_pending_work() is False
+        entry.async_create_background_task.reset_mock()
+        mgr.notify_device_seen("ble")
+        entry.async_create_background_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_key_invalid_sets_auth_error_and_notifies():
+    """The sentinel path must publish state, not just set the flag."""
+    hass, entry, _ = _make_env(entry_data={CONF_ENCRYPTION_KEY: "not-32-chars"})
+    with (
+        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
+        patch.object(delivery_mod, "async_dispatcher_send") as dispatch,
+    ):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        await mgr._deliver()
+
+    assert mgr.state.auth_paused is True
+    assert mgr.state.last_error == "auth"
+    # _resolve_key already started the flow; the pause must not start a second.
+    entry.async_start_reauth.assert_called_once()
+    assert any(
+        call.args[1] == f"{SIGNAL_PENDING_STATE}_{ADDRESS}" for call in dispatch.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_mdns_and_post_probe_notifies_are_gated():
+    """Every wake route goes through _has_pending_work, so all are gated."""
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
+        mgr = DeliveryManager(hass, entry)
+        mgr.request_config_resync()
+        await mgr._deliver()
+
+        entry.async_create_background_task.reset_mock()
+        for source in ("ble", "mdns", "post-probe"):
+            mgr.notify_device_seen(source)
+        entry.async_create_background_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auth_paused_surfaces_in_snapshot_and_entity():
+    """The flag must reach the reader, not just the dataclass.
+
+    ``last_error`` cannot carry this on its own: a paused slot's expiry timer
+    still fires and overwrites it with "expired".
+    """
+    hass, entry, _ = _make_env()
+    with _auth_patches(AuthenticationFailedError("bad key")):
+        mgr = DeliveryManager(hass, entry)
+        _submit(mgr)
+        await mgr._deliver()
+
+        # Expiry lands after the pause and clobbers last_error.
+        mgr._expire_upload(mgr._pending_upload)
+
+    assert mgr.state.last_error == "expired"
+    assert mgr.state.auth_paused is True
+
+    sensor = OpenDisplayUpdatePendingSensor(ADDRESS, mgr)
+    assert sensor.extra_state_attributes["auth_paused"] is True
+    assert sensor.extra_state_attributes["last_error"] == "expired"
 
 
 @pytest.mark.asyncio
