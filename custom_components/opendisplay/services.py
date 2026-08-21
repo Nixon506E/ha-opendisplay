@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 import contextlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 import functools
 import io
@@ -13,31 +13,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import aiohttp
-from odl_renderer import generate_image
-from opendisplay import (
-    AuthenticationFailedError,
-    AuthenticationRequiredError,
-    BLEConnectionError,
-    BLETimeoutError,
-    ColorScheme,
-    DitherMode,
-    FitMode,
-    LedFlashConfig,
-    LedFlashStep,
-    BuzzerActivateConfig,
-    NfcNotSupportedError,
-    NfcRecordType,
-    NfcWriteError,
-    OpenDisplayDevice,
-    OpenDisplayError,
-    PartialState,
-    RefreshMode,
-    Rotation,
-    prepare_image,
-)
-from PIL import Image as PILImage, ImageOps
-import voluptuous as vol
-
 from homeassistant.components.bluetooth import (
     BluetoothReachabilityIntent,
     async_address_reachability_diagnostics,
@@ -60,6 +35,31 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.network import get_url
 from homeassistant.helpers.selector import MediaSelector, MediaSelectorConfig
+from odl_renderer import generate_image
+from PIL import Image as PILImage, ImageOps
+import voluptuous as vol
+
+from opendisplay import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    BLETimeoutError,
+    BuzzerActivateConfig,
+    ColorScheme,
+    DitherMode,
+    FitMode,
+    LedFlashConfig,
+    LedFlashStep,
+    NfcNotSupportedError,
+    NfcRecordType,
+    NfcWriteError,
+    OpenDisplayDevice,
+    OpenDisplayError,
+    PartialState,
+    RefreshMode,
+    Rotation,
+    prepare_image,
+)
 
 if TYPE_CHECKING:
     from . import OpenDisplayConfigEntry
@@ -192,7 +192,9 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
         vol.Optional("area_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
         vol.Required("payload"): list,
         vol.Optional("background", default="white"): cv.string,
-        vol.Optional("rotate", default=0): vol.All(vol.Coerce(int), vol.In([0, 90, 180, 270])),
+        vol.Optional("rotate", default=0): vol.All(
+            vol.Coerce(int), vol.In([0, 90, 180, 270])
+        ),
         vol.Optional("dither", default="burkes"): _dither_value,
         vol.Optional("refresh_type", default="full"): _refresh_type_value,
         vol.Optional(ATTR_TONE_COMPRESSION): vol.All(
@@ -208,37 +210,51 @@ SCHEMA_DRAWCUSTOM = vol.Schema(
 def _rgb_to_led_color(value: list[int]) -> int:
     """Convert [R, G, B] (0-255 each) to packed 8-bit LED color byte (3R 3G 2B)."""
     r, g, b = value
-    return ((round(r * 7 / 255)) << 5) | ((round(g * 7 / 255)) << 2) | (round(b * 3 / 255))
+    return (
+        ((round(r * 7 / 255)) << 5) | ((round(g * 7 / 255)) << 2) | (round(b * 3 / 255))
+    )
 
 
 def _ms_to_loop_delay(value: int) -> int:
-    """Convert milliseconds to 4-bit loop delay units (×100 ms each, 0–1500 ms)."""
+    """Convert milliseconds to 4-bit loop delay units (100 ms each, 0-1500 ms)."""
     return max(0, min(15, round(value / 100)))
 
 
 def _ms_to_inter_delay(value: int) -> int:
-    """Convert milliseconds to 8-bit inter-delay units (×100 ms each, 0–25500 ms)."""
+    """Convert milliseconds to 8-bit inter-delay units (100 ms each, 0-25500 ms)."""
     return max(0, min(255, round(value / 100)))
 
 
-def _led_step_fields(n: int, *, color_default: list[int], flash_count_default: int) -> dict:
+def _led_step_fields(
+    n: int, *, color_default: list[int], flash_count_default: int
+) -> dict:
     """Return the voluptuous field definitions for one LED step."""
     return {
         vol.Optional(f"color{n}", default=color_default): _rgb_to_led_color,
         vol.Optional(f"flash_count{n}", default=flash_count_default): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=15)
         ),
-        vol.Optional(f"loop_delay{n}", default=0): vol.All(vol.Coerce(int), _ms_to_loop_delay),
-        vol.Optional(f"inter_delay{n}", default=0): vol.All(vol.Coerce(int), _ms_to_inter_delay),
+        vol.Optional(f"loop_delay{n}", default=0): vol.All(
+            vol.Coerce(int), _ms_to_loop_delay
+        ),
+        vol.Optional(f"inter_delay{n}", default=0): vol.All(
+            vol.Coerce(int), _ms_to_inter_delay
+        ),
     }
 
 
 SCHEMA_ACTIVATE_LED = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
-        vol.Optional("brightness", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
-        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        vol.Optional("instance", default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=255)
+        ),
+        vol.Optional("brightness", default=8): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=16)
+        ),
+        vol.Optional("repeats", default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=255)
+        ),
         **_led_step_fields(1, color_default=[255, 0, 0], flash_count_default=1),
         **_led_step_fields(2, color_default=[0, 255, 0], flash_count_default=0),
         **_led_step_fields(3, color_default=[0, 0, 255], flash_count_default=0),
@@ -248,10 +264,18 @@ SCHEMA_ACTIVATE_LED = vol.Schema(
 SCHEMA_ACTIVATE_BUZZER = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3)),
-        vol.Optional("frequency_hz", default=1000): vol.All(vol.Coerce(int), vol.Range(min=0, max=12000)),
-        vol.Optional("duration_ms", default=100): vol.All(vol.Coerce(int), vol.Range(min=5, max=1275)),
-        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+        vol.Optional("instance", default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=3)
+        ),
+        vol.Optional("frequency_hz", default=1000): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=12000)
+        ),
+        vol.Optional("duration_ms", default=100): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=1275)
+        ),
+        vol.Optional("repeats", default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=255)
+        ),
     }
 )
 
@@ -269,12 +293,22 @@ SCHEMA_WRITE_NFC = vol.Schema(
 SCHEMA_PLAY_MELODY = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Optional("instance", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=3)),
+        vol.Optional("instance", default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=3)
+        ),
         vol.Required("notes"): vol.All(cv.string, _valid_melody),
-        vol.Optional("tempo", default=120): vol.All(vol.Coerce(int), vol.Range(min=40, max=400)),
-        vol.Optional("repeats", default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
-        vol.Optional("default_note_ms", default=200): vol.All(vol.Coerce(int), vol.Range(min=5, max=1275)),
-        vol.Optional("default_length"): vol.All(vol.Coerce(int), vol.In([1, 2, 4, 8, 16, 32])),
+        vol.Optional("tempo", default=120): vol.All(
+            vol.Coerce(int), vol.Range(min=40, max=400)
+        ),
+        vol.Optional("repeats", default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=255)
+        ),
+        vol.Optional("default_note_ms", default=200): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=1275)
+        ),
+        vol.Optional("default_length"): vol.All(
+            vol.Coerce(int), vol.In([1, 2, 4, 8, 16, 32])
+        ),
     }
 )
 
@@ -344,9 +378,7 @@ async def _async_download_image(hass: HomeAssistant, url: str) -> PILImage.Image
         )
     session = async_get_clientsession(hass)
     try:
-        async with session.get(
-            url, timeout=aiohttp.ClientTimeout(total=30)
-        ) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             resp.raise_for_status()
             data = await resp.read()
     except aiohttp.ClientError as err:
@@ -381,7 +413,7 @@ PROBE_MAX_ATTEMPTS = 1
 
 async def _async_connect_and_run(
     hass: HomeAssistant,
-    entry: "OpenDisplayConfigEntry",
+    entry: OpenDisplayConfigEntry,
     action: Callable[[OpenDisplayDevice], Awaitable[None]],
     use_measured_palettes: bool = False,
     reraise_ble: bool = False,
@@ -525,7 +557,7 @@ async def _async_connect_and_run(
 
 async def _async_send_image(
     hass: HomeAssistant,
-    entry: "OpenDisplayConfigEntry",
+    entry: OpenDisplayConfigEntry,
     img: PILImage.Image,
     *,
     device_id: str | None = None,
@@ -663,7 +695,7 @@ async def _async_send_image(
 def _receipt_response(receipt: DeliveryReceipt) -> ServiceResponse:
     """Build the service response payload from a delivery receipt."""
     expires_at = (
-        datetime.fromtimestamp(receipt.expires_at, tz=timezone.utc).isoformat()
+        datetime.fromtimestamp(receipt.expires_at, tz=UTC).isoformat()
         if receipt.expires_at is not None
         else None
     )
@@ -754,9 +786,10 @@ class HADataProvider:
     """Provides HA recorder history data to odl_renderer plot elements."""
 
     def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the provider."""
         self._hass = hass
 
-    async def get_history(
+    async def get_history(  # noqa: D102 - shape is fixed by odl_renderer
         self,
         entity_ids: list[str],
         start: Any,
@@ -794,7 +827,7 @@ class HADataProvider:
 
 def _get_entry_for_device_id(
     hass: HomeAssistant, device_id: str
-) -> "OpenDisplayConfigEntry":
+) -> OpenDisplayConfigEntry:
     """Return the config entry for a raw device_id string."""
     device_registry = dr.async_get(hass)
     if (device := device_registry.async_get(device_id)) is None:
@@ -892,7 +925,7 @@ async def _async_drawcustom(call: ServiceCall) -> ServiceResponse:
         status = "delivered"
         expires_epoch = None
     expires_at = (
-        datetime.fromtimestamp(expires_epoch, tz=timezone.utc).isoformat()
+        datetime.fromtimestamp(expires_epoch, tz=UTC).isoformat()
         if expires_epoch is not None
         else None
     )
@@ -969,7 +1002,7 @@ async def _drawcustom_for_device(
     )
 
 
-def _raise_if_sleeping(entry: "OpenDisplayConfigEntry", device_id: str) -> None:
+def _raise_if_sleeping(entry: OpenDisplayConfigEntry, device_id: str) -> None:
     """Fail fast for an immediate-only action when the tag is provably asleep.
 
     LED/buzzer notifications that fire hours late are worse than an error, so a
@@ -1198,7 +1231,15 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=SCHEMA_DRAWCUSTOM,
         supports_response=SupportsResponse.OPTIONAL,
     )
-    hass.services.async_register(DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED)
-    hass.services.async_register(DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER)
-    hass.services.async_register(DOMAIN, "write_nfc", _async_write_nfc, schema=SCHEMA_WRITE_NFC)
-    hass.services.async_register(DOMAIN, "play_melody", _async_play_melody, schema=SCHEMA_PLAY_MELODY)
+    hass.services.async_register(
+        DOMAIN, "activate_led", _async_activate_led, schema=SCHEMA_ACTIVATE_LED
+    )
+    hass.services.async_register(
+        DOMAIN, "activate_buzzer", _async_activate_buzzer, schema=SCHEMA_ACTIVATE_BUZZER
+    )
+    hass.services.async_register(
+        DOMAIN, "write_nfc", _async_write_nfc, schema=SCHEMA_WRITE_NFC
+    )
+    hass.services.async_register(
+        DOMAIN, "play_melody", _async_play_melody, schema=SCHEMA_PLAY_MELODY
+    )

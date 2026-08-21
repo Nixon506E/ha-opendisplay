@@ -7,18 +7,6 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from opendisplay import (
-    AuthenticationFailedError,
-    AuthenticationRequiredError,
-    BLEConnectionError,
-    BLETimeoutError,
-    GlobalConfig,
-    OpenDisplayDevice,
-    OpenDisplayError,
-    PartialState,
-)
-from opendisplay.models.config_json import config_from_json, config_to_json
-
 from homeassistant.components.bluetooth import (
     BluetoothReachabilityIntent,
     async_address_reachability_diagnostics,
@@ -32,6 +20,18 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.typing import ConfigType
+
+from opendisplay import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    BLETimeoutError,
+    GlobalConfig,
+    OpenDisplayDevice,
+    OpenDisplayError,
+    PartialState,
+)
+from opendisplay.models.config_json import config_from_json, config_to_json
 
 from .ble_lock import async_get_ble_lock, ble_connection
 from .const import CONF_CACHED_STATE, CONF_ENCRYPTION_KEY, DOMAIN, SETUP_DEADLINE_S
@@ -124,7 +124,7 @@ def _load_cache(entry: OpenDisplayConfigEntry) -> _CachedState | None:
             device_config=device_config,
             landing_url=raw.get("landing_url"),
         )
-    except (KeyError, ValueError, TypeError):
+    except KeyError, ValueError, TypeError:
         return None
 
 
@@ -246,11 +246,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
             # wedged BLE link can't stall setup forever; a breach is treated like
             # any other connect failure below (sleepy-cache fallback / retry).
             async with asyncio.timeout(SETUP_DEADLINE_S):
-                async with ble_connection(address, "setup interrogation"), OpenDisplayDevice(
-                    mac_address=address,
-                    ble_device=ble_device,
-                    encryption_key=encryption_key,
-                ) as device:
+                async with (
+                    ble_connection(address, "setup interrogation"),
+                    OpenDisplayDevice(
+                        mac_address=address,
+                        ble_device=ble_device,
+                        encryption_key=encryption_key,
+                    ) as device,
+                ):
                     fw = await device.read_firmware_version()
                     is_flex = device.is_flex
                     # Capture while connected: landing_url() reads the advertised name.

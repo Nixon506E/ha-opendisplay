@@ -2,13 +2,8 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import time
-
-from opendisplay import voltage_to_percent
-from opendisplay.models.advertisement import Sht40Reading
-from opendisplay.models.config import SensorData
-from opendisplay.models.enums import CapacityEstimator, PowerMode, SensorType
 
 from homeassistant.components.bluetooth import async_last_service_info
 from homeassistant.components.sensor import (
@@ -26,6 +21,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from opendisplay import voltage_to_percent
+from opendisplay.models.advertisement import Sht40Reading
+from opendisplay.models.config import SensorData
+from opendisplay.models.enums import CapacityEstimator, PowerMode, SensorType
 
 from . import OpenDisplayConfigEntry
 from .coordinator import OpenDisplayUpdate
@@ -100,6 +100,7 @@ def _sht40_descriptions(
             value_fn=_humidity,
         ),
     ]
+
 
 _BATTERY_POWER_MODES = {PowerMode.BATTERY, PowerMode.SOLAR}
 
@@ -200,6 +201,7 @@ class OpenDisplayLastSeenSensor(OpenDisplaySensorEntity):
 
     @property
     def native_value(self) -> datetime | None:
+        """Return the last time the bluetooth stack saw an advertisement."""
         # connectable=False matches the Bluetooth advertisement monitor's
         # "updated" field: _all_history, refreshed on every received advert
         # before core's connectable/de-dup gates.
@@ -211,4 +213,4 @@ class OpenDisplayLastSeenSensor(OpenDisplaySensorEntity):
         # info.time is a monotonic clock (monotonic_time_coarse); convert to
         # wall time with the same offset the advertisement monitor uses.
         wall = info.time + (time.time() - time.monotonic())
-        return datetime.fromtimestamp(wall, tz=timezone.utc)
+        return datetime.fromtimestamp(wall, tz=UTC)

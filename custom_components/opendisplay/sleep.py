@@ -91,7 +91,9 @@ class SleepProfile:
         """Seconds a queued upload survives before expiring."""
         return self.queue_timeout_hours * 3600
 
-    def probably_asleep(self, last_seen: float | None, now: float | None = None) -> bool:
+    def probably_asleep(
+        self, last_seen: float | None, now: float | None = None
+    ) -> bool:
         """Return True if the device is almost certainly back asleep.
 
         The device advertises only during its wake window. If the most recent

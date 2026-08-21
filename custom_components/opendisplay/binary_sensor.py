@@ -1,6 +1,6 @@
 """Binary sensor platform for OpenDisplay devices."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -50,7 +50,7 @@ def _to_iso(epoch: float | None) -> str | None:
     """Convert an epoch timestamp to an ISO string, or None."""
     if epoch is None:
         return None
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
 
 
 class OpenDisplayUpdatePendingSensor(BinarySensorEntity):
