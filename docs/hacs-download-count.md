@@ -25,36 +25,39 @@ Add two keys:
 }
 ```
 
-### 2. `.github/workflows/release-zip.yml` (new file)
+### 2. Attach the zip from the release-please workflow
 
-Create a separate workflow triggered when release-please publishes a release.
-This is the pattern used by blitzortung and ha-bambulab.
+Applied in `.github/workflows/release-please.yml`: the zip is built and uploaded in
+the same job that cuts the release, gated on the action's `release_created` output.
 
 ```yaml
-name: Release Zip
+      - uses: googleapis/release-please-action@v4
+        id: release
+        ...
 
-on:
-  release:
-    types: [published]
-
-jobs:
-  upload-zip:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
       - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
 
       - name: Create zip
+        if: ${{ steps.release.outputs.release_created }}
         run: |
           cd custom_components/opendisplay
           zip opendisplay.zip -r ./
 
       - name: Upload zip to release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: ${{ github.workspace }}/custom_components/opendisplay/opendisplay.zip
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.release.outputs.tag_name }}" \
+            custom_components/opendisplay/opendisplay.zip --clobber
 ```
+
+**Do not use a separate workflow triggered by `release: published`.** That was tried for
+3.0.0 and never ran: release-please creates the release with `GITHUB_TOKEN`, and GitHub
+does not start workflow runs from events raised by that token. The 3.0.0 zip had to be
+built and uploaded by hand afterwards. Since `zip_release` makes HACS install from the
+asset, a missing zip means installing that release fails outright.
 
 ## Verify it worked
 
