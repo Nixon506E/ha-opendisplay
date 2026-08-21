@@ -47,12 +47,12 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-_BASE_PLATFORMS: list[Platform] = [
+BASE_PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.IMAGE,
     Platform.SENSOR,
 ]
-_FLEX_PLATFORMS = [
+FLEX_PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.EVENT,
     Platform.IMAGE,
@@ -376,7 +376,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
 
 def _get_platforms(runtime_data: OpenDisplayRuntimeData) -> list[Platform]:
     """Return the platforms to set up for this device."""
-    platforms = list(_FLEX_PLATFORMS if runtime_data.is_flex else _BASE_PLATFORMS)
+    platforms = list(FLEX_PLATFORMS if runtime_data.is_flex else BASE_PLATFORMS)
     if not runtime_data.is_flex and runtime_data.device_config.touch_controllers:
         platforms.append(Platform.EVENT)
     return platforms
