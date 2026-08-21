@@ -93,6 +93,65 @@ Devices should be automatically discovered after installation.
   color: "black"
 ```
 
+## Translations
+
+The integration is available in Czech, Dutch, English, French, German, Italian,
+Polish, Portuguese (European and Brazilian), and Spanish.
+
+English is written by hand. **Every other language is machine-translated** and
+has not been reviewed by a native speaker, so expect the occasional awkward or
+plainly wrong phrasing. Corrections are very welcome, and they stick:
+
+- Edit the relevant file in `custom_components/opendisplay/translations/` and
+  open a pull request. There is no need to touch anything else.
+- **Your wording will not be overwritten.** The translation workflow records a
+  fingerprint of what it generated, so it can tell its own output from a human
+  edit. Once you have corrected a string it is treated as yours. If the English
+  source later changes, the workflow flags the string for review rather than
+  replacing your version.
+
+One style note if you are correcting a string: translations deliberately avoid
+the familiar/polite distinction (German du/Sie, French tu/vous, and so on) by
+using impersonal phrasing, such as infinitives for instructions. Please keep
+that style.
+
+Missing a language? Open an issue and we will add it.
+
+<details>
+<summary>Maintaining the translations (developer notes)</summary>
+
+`scripts/translate.py` fills in strings that are missing from a language, or
+whose English source was reworded since it was last translated. Nothing else is
+ever sent to a model. `.github/workflows/translate.yml` runs it when
+`translations/en.json` changes on a release branch and opens a pull request.
+
+**Adding a language.** Add its code and name to `LANGUAGES` in
+`scripts/translate.py`. The next run fills in the file.
+
+**Providers.** Any OpenAI-compatible chat endpoint works. OpenRouter and GitHub
+Models are configured out of the box in `PROVIDERS`, selected by whichever API
+key is present:
+
+| Variable | Provider | Notes |
+|---|---|---|
+| `OPENROUTER_API_KEY` | OpenRouter | Preferred. No output-token cap. |
+| `MODELS_TOKEN` | GitHub Models | Personal access token with `models:read`. |
+| `GITHUB_TOKEN` | GitHub Models | Only works if the repo's org has a Copilot plan. |
+
+`TRANSLATE_PROVIDER` and `TRANSLATE_MODEL` override the choice for one run:
+
+```bash
+OPENROUTER_API_KEY=... TRANSLATE_MODEL=google/gemini-2.5-flash-lite \
+  python3 scripts/translate.py --languages de --dry-run
+```
+
+**Checking output.** `scripts/verify_translations.py` re-checks the files on
+disk and fails on placeholder mismatches, empty values, or keys that no longer
+exist in `en.json`. It also warns when a translation addresses the reader
+directly, which the impersonal style above is meant to avoid.
+
+</details>
+
 ## Contributing
 - Feature requests and bug reports are welcome! Please open an issue on GitHub
 - Pull requests are encouraged

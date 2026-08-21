@@ -1,11 +1,16 @@
-from __future__ import annotations
+"""Sensor platform for OpenDisplay devices."""
 
-PARALLEL_UPDATES = 0
-
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Final
+import time
 
+from opendisplay import voltage_to_percent
+from opendisplay.models.advertisement import Sht40Reading
+from opendisplay.models.config import SensorData
+from opendisplay.models.enums import CapacityEstimator, PowerMode, SensorType
+
+from homeassistant.components.bluetooth import async_last_service_info
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -13,735 +18,197 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    SIGNAL_STRENGTH_DECIBELS,
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfElectricPotential,
     UnitOfTemperature,
-    UnitOfElectricPotential, UnitOfInformation, UnitOfTime,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import StateType
-import logging
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import Hub
-from .entity import OpenDisplayTagEntity, OpenDisplayAPEntity, OpenDisplayBLEEntity
-from .runtime_data import OpenDisplayConfigEntry
-from .const import DOMAIN
-from .util import is_ble_entry
-from .tag_types import get_hw_string, get_hw_dimensions
+from . import OpenDisplayConfigEntry
+from .coordinator import OpenDisplayUpdate
+from .entity import OpenDisplayEntity
 
-_LOGGER: Final = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OpenDisplaySensorEntityDescription(SensorEntityDescription):
-    """Class describing OpenDisplay sensor entities.
+    """Describes an OpenDisplay sensor entity."""
 
-    Extends the standard Home Assistant sensor description with
-    additional fields specific to OpenDisplay sensors, particularly
-    the value extraction function that pulls data from the raw state.
+    value_fn: Callable[[OpenDisplayUpdate], float | int | str | datetime | None]
 
-    This class acts as a blueprint for creating sensor entities with
-    consistent behavior and appearance across the integration.
 
-    Attributes:
-        key: Unique identifier for the sensor type
-        name: Human-readable name for the sensor
-        device_class: Device class for standardized behavior
-        state_class: State class for statistics and history
-        native_unit_of_measurement: Unit for the sensor value
-        suggested_unit_of_measurement: Preferred unit for display
-        suggested_display_precision: Number of decimal places to display
-        entity_category: Category for UI organization
-        entity_registry_enabled_default: Whether enabled by default
-        value_fn: Function to extract the value from raw state data
-        attr_fn: Optional function to extract extra attributes
-        icon: Material Design Icons identifier
+# The MCU's own temperature, not an attached sensor. translation_key only sets
+# the display name; the key -- and so the unique_id -- stays "temperature", so
+# entities that already exist keep their history.
+_TEMPERATURE_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="temperature",
+    translation_key="chip_temperature",
+    device_class=SensorDeviceClass.TEMPERATURE,
+    native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda upd: upd.advertisement.temperature_c,
+)
+
+
+def _sht40_descriptions(
+    sensor: SensorData,
+) -> list[OpenDisplaySensorEntityDescription]:
+    """Build ambient temperature and humidity entities for one SHT40.
+
+    The reading rides in the advertisement, so these need no connection. Its
+    offset within the dynamic block is per-board and cannot be assumed --
+    reTerminal E1001/E1002/E1004 use 1 while the firmware default is 7 -- so it
+    comes from the device's own config and is captured once per entity here.
+
+    Unlike the chip temperature these are primary entities: not diagnostic, and
+    enabled by default.
     """
-    key: str
-    name: str
-    device_class: SensorDeviceClass | None = None
-    state_class: SensorStateClass | None = None
-    native_unit_of_measurement: str | None = None
-    suggested_unit_of_measurement: UnitOfInformation | None = None
-    suggested_display_precision: int | None = None
-    entity_category: EntityCategory | None = None
-    entity_registry_enabled_default: bool = False
-    value_fn: Callable[[dict], Any]
-    attr_fn: Callable[[dict], Any] = None
+    start_byte = sensor.sht40_msd_start_byte
 
+    def _reading(upd: OpenDisplayUpdate) -> Sht40Reading | None:
+        return upd.advertisement.sht40_reading(start_byte)
 
-AP_SENSOR_TYPES: tuple[OpenDisplaySensorEntityDescription, ...] = (
-    OpenDisplaySensorEntityDescription(
-        key="ip",
-        name="IP Address",
-        value_fn=lambda data: data.get("ip"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="wifi_ssid",
-        name="WiFi SSID",
-        value_fn=lambda data: data.get("wifi_ssid"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="record_count",
-        name="Tag count",
-        state_class=SensorStateClass.TOTAL,
-        value_fn=lambda data: data.get("record_count"),
-        entity_registry_enabled_default=True,
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="db_size",
-        name="Database Size",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.KIBIBYTES,
-        suggested_display_precision=3,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: int(data.get("db_size", 0)),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="little_fs_free",
-        name="LittleFS Free",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.MEBIBYTES,
-        suggested_display_precision=3,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: int(data.get("little_fs_free", 0)),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="ap_state",
-        name="State",
-        value_fn=lambda data: data.get("ap_state"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="run_state",
-        name="Run State",
-        value_fn=lambda data: data.get("run_state"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="wifi_rssi",
-        name="WiFi RSSI",
-        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("rssi"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="heap",
-        name="Free Heap",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.KIBIBYTES,
-        suggested_display_precision=3,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: int(data.get("heap", 0)),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="sys_time",
-        name="System Time",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: datetime.fromtimestamp(data.get("sys_time", 0), tz=timezone.utc),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="uptime",
-        name="Uptime",
-        device_class=SensorDeviceClass.DURATION,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("uptime"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="low_battery_tag_count",
-        name="Low Battery Tags",
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda data: data.get("low_battery_count"),
-        entity_registry_enabled_default=True,
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="timeout_tag_count",
-        name="Timed out Tags",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=None,
-        value_fn=lambda data: data.get("timeout_count"),
-        entity_registry_enabled_default=True,
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="ps_ram_free",
-        name="PSRAM Free",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.MEBIBYTES,
-        suggested_display_precision=3,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: int(data.get("ps_ram_free", 0)),
-    )
+    def _temperature(upd: OpenDisplayUpdate) -> float | None:
+        reading = _reading(upd)
+        return None if reading is None else reading.temperature_c
+
+    def _humidity(upd: OpenDisplayUpdate) -> float | None:
+        reading = _reading(upd)
+        return None if reading is None else reading.humidity_percent
+
+    return [
+        OpenDisplaySensorEntityDescription(
+            key=f"sht40_{sensor.instance_number}_temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+            value_fn=_temperature,
+        ),
+        OpenDisplaySensorEntityDescription(
+            key=f"sht40_{sensor.instance_number}_humidity",
+            device_class=SensorDeviceClass.HUMIDITY,
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+            value_fn=_humidity,
+        ),
+    ]
+
+_BATTERY_POWER_MODES = {PowerMode.BATTERY, PowerMode.SOLAR}
+
+_BATTERY_VOLTAGE_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="battery_voltage",
+    translation_key="battery_voltage",
+    device_class=SensorDeviceClass.VOLTAGE,
+    native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda upd: upd.advertisement.battery_mv,
 )
-"""Definitions for all AP-related sensor entities.
 
-This tuple defines all the sensor entities created for the Access Point.
-Each entry is an OpenDisplaySensorEntityDescription that specifies
-how to create and populate a sensor entity from AP data.
+_RSSI_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="rssi",
+    translation_key="rssi",
+    device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    state_class=SensorStateClass.MEASUREMENT,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda upd: upd.rssi,
+)
 
-Sensor types include:
-
-- Network information (IP, WiFi SSID, RSSI)
-- System metrics (heap, database size, uptime)
-- Tag statistics (count, low battery, timeout)
-- Operational state (AP state, run state)
-
-Each sensor uses a value_fn to extract the relevant data from
-the hub's AP status dictionary.
-"""
-TAG_SENSOR_TYPES: tuple[OpenDisplaySensorEntityDescription, ...] = (
-    OpenDisplaySensorEntityDescription(
-        key="temperature",
-        name="Temperature",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        value_fn=lambda data: data.get("temperature"),
-        entity_registry_enabled_default=True,
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="battery_voltage",
-        name="Battery Voltage",
-        device_class=SensorDeviceClass.VOLTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("battery_mv"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="battery_percentage",
-        name="Battery Percentage",
-        device_class=SensorDeviceClass.BATTERY,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda data: _calculate_battery_percentage(data.get("battery_mv", 0)),
-        entity_registry_enabled_default=True,
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="last_seen",
-        name="Last Seen",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: datetime.fromtimestamp(data.get("last_seen", 0), tz=timezone.utc),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="next_update",
-        name="Next Update",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: datetime.fromtimestamp(data.get("next_update", 0), tz=timezone.utc),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="next_checkin",
-        name="Next Checkin",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: datetime.fromtimestamp(data.get("next_checkin", 0), tz=timezone.utc),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="lqi",
-        name="Link Quality Index",
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("lqi"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="rssi",
-        name="RSSI",
-        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("rssi"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="pending_updates",
-        name="Pending Updates",
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("pending"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="content_mode",
-        name="Content Mode",
-        value_fn=lambda data: data.get("content_mode"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="wakeup_reason",
-        name="Wakeup Reason",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("wakeup_reason"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="capabilities",
-        name="Capabilities",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("capabilities"),
-        attr_fn=lambda data: {
-            "raw_value": data.get("capabilities", 0),
-            "binary_value": format(data.get("capabilities", 0), '08b'),
-            "capabilities": get_capabilities(data.get("capabilities", 0))
-        },
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="update_count",
-        name="Update Count",
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("update_count"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="width",
-        name="Width",
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("width"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="height",
-        name="Height",
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("height"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="runtime",
-        name="Runtime",
-        device_class=SensorDeviceClass.DURATION,
-        state_class=SensorStateClass.TOTAL,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("runtime", 0),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="boot_count",
-        name="Boot Count",
-        state_class=SensorStateClass.TOTAL,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("boot_count", 0),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="checkin_count",
-        name="Checkin Count",
-        state_class=SensorStateClass.TOTAL,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("checkin_count", 0),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="block_requests",
-        name="Block Requests",
-        state_class=SensorStateClass.TOTAL,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.get("block_requests", 0),
-    ),
-
+_LAST_SEEN_DESCRIPTION = OpenDisplaySensorEntityDescription(
+    key="last_seen",
+    translation_key="last_seen",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    # native_value is overridden by OpenDisplayLastSeenSensor, so this value_fn
+    # is dead code; value_fn is a required field, hence the no-op.
+    value_fn=lambda _upd: None,
 )
 
 
-BLE_SENSOR_TYPES: tuple[OpenDisplaySensorEntityDescription, ...] = (
-    OpenDisplaySensorEntityDescription(
-        key="temperature",
-        name="Temperature",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        value_fn=lambda data: data.get("temperature"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="battery_percentage",
-        name="Battery Percentage",
-        device_class=SensorDeviceClass.BATTERY,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda data: data.get("battery_percentage"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="battery_voltage",
-        name="Battery Voltage",
-        device_class=SensorDeviceClass.VOLTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("battery_voltage"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="rssi",
-        name="RSSI",
-        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("rssi"),
-    ),
-    OpenDisplaySensorEntityDescription(
-        key="last_seen",
-        name="Last Seen",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("last_seen"),
-    ),
-)
-"""Definitions for all BLE tag-related sensor entities.
-
-These sensors are created for BLE devices and track:
-- Battery level and voltage from advertising data
-- RSSI signal strength from Bluetooth
-- Last seen timestamp from advertising updates
-"""
-
-"""Definitions for all tag-related sensor entities.
-
-This tuple defines all the sensor entities created for each ESL.
-Each entry is an OpenDisplaySensorEntityDescription that specifies
-how to create and populate a sensor entity from tag data.
-
-Sensor types include:
-
-- Telemetry data (temperature, battery, signal strength)
-- Status information (last seen, next update, pending)
-- Hardware capabilities (runtime, boot count, display size)
-- Technical details (wakeup reason, capabilities flags)
-
-Each sensor uses a value_fn to extract the relevant data from
-the hub's tag data dictionary.
-"""
-
-
-def _calculate_battery_percentage(voltage: int) -> int:
-    """Calculate battery percentage from raw voltage.
-
-    Converts a battery voltage reading in millivolts to an estimated
-    percentage based on the known discharge curve of a typical
-    lithium battery used in ESL tags.
-
-    The formula approximates:
-
-    - 100% at around 3.0V
-    - 0% at around 2.2V
-
-    Args:
-        voltage: Battery voltage in millivolts
-
-    Returns:
-        int: Battery percentage (0-100), clamped to valid range
-    """
-    if not voltage:
-        return 0
-    percentage = ((voltage / 1000) - 2.20) * 250
-    return max(0, min(100, int(percentage)))
-
-
-def _tag_has_battery(tag_data: dict) -> bool:
-    """Check if a tag is battery-powered."""
-    if not tag_data:
-        return True  # Default to creating sensors when data is missing
-
-    if tag_data.get("is_external"):
-        return False
-
-    battery_mv = tag_data.get("battery_mv")
-    return battery_mv is not None and battery_mv > 0
-
-
-def _remove_battery_sensors(
-    hass: HomeAssistant, entry_id: str, tag_mac: str
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: OpenDisplayConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Remove battery entities for a non-battery tag."""
-    entity_registry = er.async_get(hass)
-    unique_ids = {
-        f"{tag_mac}_battery_percentage",
-        f"{tag_mac}_battery_voltage",
-    }
+    """Set up OpenDisplay sensor entities."""
+    coordinator = entry.runtime_data.coordinator
+    device_config = entry.runtime_data.device_config
+    power_config = device_config.power
+    descriptions: list[OpenDisplaySensorEntityDescription] = [
+        _TEMPERATURE_DESCRIPTION,
+        _RSSI_DESCRIPTION,
+        _LAST_SEEN_DESCRIPTION,
+    ]
 
-    for entity in er.async_entries_for_config_entry(entity_registry, entry_id):
-        if entity.unique_id in unique_ids:
-            _LOGGER.info("Removing battery sensor for external-power tag: %s", entity.entity_id)
-            entity_registry.async_remove(entity.entity_id)
+    for sensor in device_config.sensors:
+        if sensor.sensor_type_enum is SensorType.SHT40:
+            descriptions += _sht40_descriptions(sensor)
 
+    if power_config.power_mode_enum in _BATTERY_POWER_MODES:
+        capacity_estimator = power_config.capacity_estimator or CapacityEstimator.LI_ION
+        descriptions += [
+            _BATTERY_VOLTAGE_DESCRIPTION,
+            OpenDisplaySensorEntityDescription(
+                key="battery",
+                device_class=SensorDeviceClass.BATTERY,
+                native_unit_of_measurement=PERCENTAGE,
+                state_class=SensorStateClass.MEASUREMENT,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                value_fn=lambda upd: voltage_to_percent(
+                    upd.advertisement.battery_mv, capacity_estimator
+                ),
+            ),
+        ]
 
-class OpenDisplayTagSensor(OpenDisplayTagEntity, SensorEntity):
-    """Sensor class for OpenDisplay tag data."""
-    entity_description: OpenDisplaySensorEntityDescription
-
-    def __init__(self, hub: Hub, tag_mac: str, description: OpenDisplaySensorEntityDescription) -> None:
-        """Initialize the tag sensor."""
-        super().__init__(hub, tag_mac)
-        self.entity_description = description
-        self._attr_translation_key = description.key
-        self._attr_unique_id = f"{tag_mac}_{description.key}"
-        self.entity_id = f"{DOMAIN}.{tag_mac.lower()}_{description.key}"
-        self._attr_entity_registry_enabled_default = description.entity_registry_enabled_default
-
-    @property
-    def native_value(self):
-        """Return the state of the sensor."""
-        if not self.available or self.entity_description.value_fn is None:
-            return None
-        return self.entity_description.value_fn(self._hub.get_tag_data(self._tag_mac))
-
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        if self.entity_description.attr_fn is None:
-            return None
-        return self.entity_description.attr_fn(self._hub.get_tag_data(self._tag_mac))
-
-class OpenDisplayAPSensor(OpenDisplayAPEntity, SensorEntity):
-    """Sensor class for OEPL AP data."""
-
-    entity_description: OpenDisplaySensorEntityDescription
-
-    def __init__(self, hub, description: OpenDisplaySensorEntityDescription) -> None:
-        """Initialize the AP sensor."""
-        super().__init__(hub)
-        self.entity_description = description
-        self._attr_translation_key = description.key
-        self._attr_unique_id = f"{self._hub.entry.entry_id}_{description.key}"
-
-    async def async_added_to_hass(self) -> None:
-        """Register update signal handlers."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{DOMAIN}_ap_update",
-                self._handle_update,
-            )
+    async_add_entities(
+        (
+            OpenDisplayLastSeenSensor(coordinator, description)
+            if description.key == "last_seen"
+            else OpenDisplaySensorEntity(coordinator, description)
         )
-
-    @property
-    def native_value(self):
-        """Return the state of the sensor."""
-        if not self.available or self.entity_description.value_fn is None:
-            return None
-        return self.entity_description.value_fn(self._hub.ap_status)
-
-
-
-class OpenDisplayBLESensor(OpenDisplayBLEEntity, SensorEntity):
-    """BLE sensor entity for OpenDisplay tags."""
-
-    _attr_entity_registry_enabled_default = True
-
-    def __init__(
-            self,
-            hass: HomeAssistant,
-            mac_address: str,
-            name: str,
-            device_metadata: dict,
-            entry: OpenDisplayConfigEntry,
-            description: OpenDisplaySensorEntityDescription,
-    ) -> None:
-        """Initialize the BLE sensor entity."""
-        super().__init__(mac_address, name, entry)
-        self._hass = hass
-        self._device_metadata = device_metadata
-        self._description = description
-        self._sensor_data = {}
-        self._attr_entity_registry_enabled_default = description.entity_registry_enabled_default
-        self._attr_translation_key = description.key
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique ID for this entity."""
-        return f"opendisplay_ble_{self._mac_address}_{self._description.key}"
-
-    @property
-    def native_value(self) -> StateType:
-        """Return the state of the sensor."""
-        if self._description.value_fn:
-            return self._description.value_fn(self._sensor_data)
-        return self._sensor_data.get(self._description.key)
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return the unit of measurement."""
-        return self._description.native_unit_of_measurement
-
-    @property
-    def device_class(self) -> SensorDeviceClass | None:
-        """Return the device class."""
-        return self._description.device_class
-
-    @property
-    def state_class(self) -> SensorStateClass | None:
-        """Return the state class."""
-        return self._description.state_class
-
-    @property
-    def entity_category(self) -> EntityCategory | None:
-        """Return the entity category."""
-        return self._description.entity_category
-
-
-    def update_from_advertising_data(self, data: dict) -> None:
-        """Update sensor state from BLE advertising data."""
-        self._sensor_data = data
-        if self.hass is not None:
-            self.async_write_ha_state()
-
-    async def async_added_to_hass(self) -> None:
-        """Called when entity is added to hass."""
-        if self._sensor_data:
-            self.async_write_ha_state()
-
-    async def async_update(self) -> None:
-        """Update the sensor state."""
-        pass
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    """Set up the OpenDisplay sensors.
-
-    Creates sensor entities for both AP-based and BLE-based entries:
-
-    1. For AP entries: AP sensors and tag sensors based on existing types
-    2. For BLE entries: BLE sensor entities for battery, RSSI, last seen
-
-    Args:
-        hass: Home Assistant instance
-        entry: Configuration entry
-        async_add_entities: Callback to register new entities
-    """
-    entry_data = entry.runtime_data
-    
-    # Check if this is a BLE device entry
-    if is_ble_entry(entry_data):
-        # Set up BLE sensors with a simple callback approach
-        mac_address = entry_data.mac_address
-        name = entry_data.name
-        device_metadata = entry_data.device_metadata
-        protocol_type = entry_data.protocol_type  # Default to ATC for backward compatibility
-
-        # Create sensors for each description
-        from .ble import BLEDeviceMetadata
-        metadata = BLEDeviceMetadata(device_metadata)
-        sensors = []
-        for description in BLE_SENSOR_TYPES:
-            # Handle battery sensors based on device protocol
-            if description.key in ("battery_percentage", "battery_voltage"):
-                if protocol_type == "atc":
-                    # ATC devices always have batteries
-                    pass  # Continue to create sensor
-                elif protocol_type == "open_display":
-                    # OpenDisplay devices: only create battery sensors for battery/solar power
-                    if metadata.power_mode not in (1, 3):  # Not battery (1) or solar (3)
-                        continue  # Skip battery sensors
-
-            sensor = OpenDisplayBLESensor(
-                hass=hass,
-                mac_address=mac_address,
-                name=name,
-                device_metadata=device_metadata,
-                entry=entry,
-                description=description,
-            )
-            sensors.append(sensor)
-
-            # Register the sensor in the sensors registry so callback can update it
-            entry_data.sensors[description.key] = sensor
-        
-        # Add the sensors
-        async_add_entities(sensors)
-        return
-    
-    # Traditional AP setup
-    hub = entry_data  # For AP entries, entry_data is the Hub instance
-
-    # Set up AP sensors
-    ap_sensors = [OpenDisplayAPSensor(hub, description) for description in AP_SENSOR_TYPES]
-    async_add_entities(ap_sensors)
-
-    @callback
-    def async_add_tag_sensor(tag_mac: str) -> None:
-        """Add sensors for a new tag.
-
-        Creates sensor entities for a newly discovered tag based on the
-        TAG_SENSOR_TYPES definitions. Called when a new tag is discovered
-        by the integration.
-
-        Args:
-            tag_mac: MAC address of the newly discovered tag
-        """
-        entities = []
-
-        tag_data = hub.get_tag_data(tag_mac)
-        has_battery = _tag_has_battery(tag_data)
-
-        for description in TAG_SENSOR_TYPES:
-            if description.key in ("battery_percentage", "battery_voltage") and not has_battery:
-                continue
-            sensor = OpenDisplayTagSensor(hub, tag_mac, description)
-            entities.append(sensor)
-
-        if not has_battery:
-            _remove_battery_sensors(hass, entry.entry_id, tag_mac)
-
-        async_add_entities(entities)
-
-    # Set up sensors for existing tags
-    for tag_mac in hub.tags:
-        async_add_tag_sensor(tag_mac)
-
-    # Register callback for new tag discovery
-    entry.async_on_unload(
-        async_dispatcher_connect(
-            hass,
-            f"{DOMAIN}_tag_discovered",
-            async_add_tag_sensor
-        )
+        for description in descriptions
     )
 
 
-def get_capabilities(capabilities_value: int) -> list[str]:
-    """Convert a capabilities number into a list of capabilities.
+class OpenDisplaySensorEntity(OpenDisplayEntity, SensorEntity):
+    """A sensor entity for an OpenDisplay device."""
 
-    Translates the binary capabilities flags from the tag into a
-    human-readable list of capability names. Each bit in the value
-    represents a different capability.
+    entity_description: OpenDisplaySensorEntityDescription
 
-    Capabilities include:
+    @property
+    def native_value(self) -> float | int | str | datetime | None:
+        """Return the sensor value."""
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator.data)
 
-    - SUPPORTS_COMPRESSION: Tag supports compressed image data
-    - SUPPORTS_CUSTOM_LUTS: Tag supports custom display LUTs
-    - HAS_EXT_POWER: Tag has external power connection
-    - HAS_WAKE_BUTTON: Tag has physical wake button
-    - HAS_NFC: Tag has NFC capability
-    - NFC_WAKE: Tag can wake from NFC scan
 
-    Args:
-        capabilities_value: Integer with capability flags
+class OpenDisplayLastSeenSensor(OpenDisplaySensorEntity):
+    """last_seen sourced from the bluetooth stack, not the gated callback."""
 
-    Returns:
-        list[str]: List of capability string names
-    """
-    capability_map = {
-        0x02: "SUPPORTS_COMPRESSION",
-        0x04: "SUPPORTS_CUSTOM_LUTS",
-        0x08: "ALT_LUT_SIZE",
-        0x10: "HAS_EXT_POWER",
-        0x20: "HAS_WAKE_BUTTON",
-        0x40: "HAS_NFC",
-        0x80: "NFC_WAKE"
-    }
-
-    capabilities = []
-    for flag, name in capability_map.items():
-        if capabilities_value & flag:
-            capabilities.append(name)
-
-    return capabilities
+    @property
+    def native_value(self) -> datetime | None:
+        # connectable=False matches the Bluetooth advertisement monitor's
+        # "updated" field: _all_history, refreshed on every received advert
+        # before core's connectable/de-dup gates.
+        info = async_last_service_info(
+            self.hass, self.coordinator.address, connectable=False
+        )
+        if info is None:
+            return None
+        # info.time is a monotonic clock (monotonic_time_coarse); convert to
+        # wall time with the same offset the advertisement monitor uses.
+        wall = info.time + (time.time() - time.monotonic())
+        return datetime.fromtimestamp(wall, tz=timezone.utc)
