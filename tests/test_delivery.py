@@ -473,8 +473,8 @@ async def test_all_wake_sources_share_the_same_gate():
     """Every wake route funnels through notify_device_seen, so one gate covers all.
 
     ``source`` is only a log label; the BLE, mDNS
-    (``transport.async_notify_host_seen``) and post-probe (``services``) callers
-    all reach this same method, which is where the gate lives.
+    (``transport.note_mdns_seen``) and post-probe (``services``) callers all
+    reach this same method, which is where the gate lives.
     """
     hass, entry, _ = _make_env()
     with _auth_patches(AuthenticationFailedError("bad key")):
