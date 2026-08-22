@@ -4,15 +4,6 @@ from dataclasses import dataclass, field
 import logging
 import time
 
-from opendisplay import MANUFACTURER_ID, AdvertisementTracker, parse_advertisement
-from opendisplay.models.advertisement import (
-    AdvertisementData,
-    ButtonChangeEvent,
-    TouchChangeEvent,
-    TouchTracker,
-)
-from opendisplay.models.config import BinaryInputs
-
 from homeassistant.components.bluetooth import (
     BluetoothChange,
     BluetoothScanningMode,
@@ -22,6 +13,15 @@ from homeassistant.components.bluetooth.passive_update_coordinator import (
     PassiveBluetoothDataUpdateCoordinator,
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+
+from opendisplay import MANUFACTURER_ID, AdvertisementTracker, parse_advertisement
+from opendisplay.models.advertisement import (
+    AdvertisementData,
+    ButtonChangeEvent,
+    TouchChangeEvent,
+    TouchTracker,
+)
+from opendisplay.models.config import BinaryInputs
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 

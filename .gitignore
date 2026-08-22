@@ -167,7 +167,6 @@ config/
 # Editor / tooling
 .claude/
 .run/
-uv.lock
 ha_data_provider.md
 
 custom_components/opendisplay/*.jpg

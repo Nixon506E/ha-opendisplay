@@ -25,6 +25,13 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
+
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
@@ -35,13 +42,6 @@ from opendisplay import (
     PartialState,
     RefreshMode,
 )
-
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_call_later
 
 from .ble_lock import ble_connection
 from .const import (
@@ -170,7 +170,7 @@ class DeliveryManager:
                 await self._delivery_task
             except asyncio.CancelledError:
                 pass
-            except Exception:  # noqa: BLE001 - shutdown must not raise
+            except Exception:
                 _LOGGER.debug("Delivery task raised during shutdown", exc_info=True)
         self._delivery_task = None
         self._delivering = False
@@ -306,7 +306,7 @@ class DeliveryManager:
             # Device slept mid-connect or the wake window was missed; keep the
             # work queued and try again on the next wake.
             self._register_attempt_failure(str(err))
-        except (AuthenticationFailedError, AuthenticationRequiredError):
+        except AuthenticationFailedError, AuthenticationRequiredError:
             # Bad/rotated/absent key. Pausing only the upload would leave a
             # pending config resync deliverable, and the next advertisement would
             # start another identical, doomed session (issue #91), so the pause is
@@ -321,7 +321,7 @@ class DeliveryManager:
             self._delivery_task = None
 
     async def _drain_once(self) -> None:
-        """The connection + drain body (see `_deliver` for error handling)."""
+        """Run the connection + drain body (see `_deliver` for error handling)."""
         key = self._resolve_key()
         if key is _KEY_INVALID:
             # Malformed stored key; ``_resolve_key`` already started reauth. This
@@ -397,7 +397,7 @@ class DeliveryManager:
     async def _drain_resync(self, device: OpenDisplayDevice) -> None:
         """Re-read firmware/config over the open link and refresh the cache."""
         # Local import avoids an import cycle (__init__ imports this module).
-        from . import _write_cache  # noqa: PLC0415
+        from . import _write_cache
 
         fw = await device.read_firmware_version()
         is_flex = device.is_flex

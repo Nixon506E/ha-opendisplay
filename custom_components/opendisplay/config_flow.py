@@ -6,16 +6,6 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-from opendisplay import (
-    MANUFACTURER_ID,
-    AuthenticationFailedError,
-    AuthenticationRequiredError,
-    BLEConnectionError,
-    OpenDisplayDevice,
-    OpenDisplayError,
-)
-import voluptuous as vol
-
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
@@ -40,6 +30,16 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+import voluptuous as vol
+
+from opendisplay import (
+    MANUFACTURER_ID,
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    OpenDisplayDevice,
+    OpenDisplayError,
+)
 
 from .ble_lock import ble_connection
 from .const import (
@@ -94,9 +94,7 @@ def _options_schema() -> vol.Schema:
     """Return the options-flow schema."""
     return vol.Schema(
         {
-            vol.Required(
-                CONF_SLEEP_MODE, default=DEFAULT_SLEEP_MODE
-            ): SelectSelector(
+            vol.Required(CONF_SLEEP_MODE, default=DEFAULT_SLEEP_MODE): SelectSelector(
                 SelectSelectorConfig(
                     options=[SLEEP_MODE_AUTO, SLEEP_MODE_ON, SLEEP_MODE_OFF],
                     translation_key="sleep_mode",
@@ -128,9 +126,7 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_PROBE_BEFORE_QUEUE, default=DEFAULT_PROBE_BEFORE_QUEUE
             ): BooleanSelector(),
-            vol.Required(
-                CONF_BLOCKS_PER_ACK, default=DEFAULT_BLOCKS_PER_ACK
-            ): vol.All(
+            vol.Required(CONF_BLOCKS_PER_ACK, default=DEFAULT_BLOCKS_PER_ACK): vol.All(
                 NumberSelector(
                     NumberSelectorConfig(
                         min=1, max=32, step=1, mode=NumberSelectorMode.BOX
@@ -138,9 +134,7 @@ def _options_schema() -> vol.Schema:
                 ),
                 vol.Coerce(int),
             ),
-            vol.Required(
-                CONF_MAX_QUEUE_SIZE, default=DEFAULT_MAX_QUEUE_SIZE
-            ): vol.All(
+            vol.Required(CONF_MAX_QUEUE_SIZE, default=DEFAULT_MAX_QUEUE_SIZE): vol.All(
                 NumberSelector(
                     NumberSelectorConfig(
                         min=1, max=32, step=1, mode=NumberSelectorMode.BOX
@@ -188,13 +182,14 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         # maps to "cannot_connect"; AuthenticationRequiredError still propagates.
         try:
             async with asyncio.timeout(CONNECT_PROBE_DEADLINE_S):
-                async with ble_connection(
-                    address, "connection probe (config flow)"
-                ), OpenDisplayDevice(
-                    mac_address=address,
-                    ble_device=ble_device,
-                    encryption_key=encryption_key,
-                ) as device:
+                async with (
+                    ble_connection(address, "connection probe (config flow)"),
+                    OpenDisplayDevice(
+                        mac_address=address,
+                        ble_device=ble_device,
+                        encryption_key=encryption_key,
+                    ) as device,
+                ):
                     await device.read_firmware_version()
         except TimeoutError as err:
             raise BLEConnectionError(
@@ -212,6 +207,7 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
 
         Raises:
             OSError / TimeoutError: if the endpoint is unreachable.
+
         """
         async with asyncio.timeout(TCP_CONNECT_TIMEOUT_S):
             _reader, writer = await asyncio.open_connection(host, port)
@@ -259,9 +255,9 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
         self._zeroconf_host = host
         self._zeroconf_port = port
         self._zeroconf_tls = tls
-        self._zeroconf_name = discovery_info.name.removesuffix(
-            "._opendisplay._tcp.local."
-        ) or host
+        self._zeroconf_name = (
+            discovery_info.name.removesuffix("._opendisplay._tcp.local.") or host
+        )
         self.context["title_placeholders"] = {"name": self._zeroconf_name}
         return await self.async_step_zeroconf_confirm()
 
@@ -286,9 +282,9 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self._async_test_connection_tcp(
                     self._zeroconf_host, self._zeroconf_port
                 )
-            except (OSError, TimeoutError):
+            except OSError, TimeoutError:
                 errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception("Unexpected error probing WiFi device")
                 errors["base"] = "unknown"
             else:
@@ -340,9 +336,7 @@ class OpenDisplayConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(
-                    title=self._discovery_info.name, data={}
-                )
+                return self.async_create_entry(title=self._discovery_info.name, data={})
 
         self._set_confirm_only()
         return self.async_show_form(

@@ -12,9 +12,8 @@ import asyncio
 import gc
 import logging
 
-import pytest
-
 from homeassistant.helpers.device_registry import format_mac
+import pytest
 
 from custom_components.opendisplay.ble_lock import (
     _HOLDERS,
@@ -76,14 +75,15 @@ async def test_contended_connection_serializes_and_warns(caplog):
     assert order == ["a-enter", "a-exit", "b-enter"]
 
     warnings = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.name == _LOGGER_NAME and r.levelno == logging.WARNING
     ]
     assert len(warnings) == 1
     message = warnings[0].getMessage()
     assert ADDRESS in message  # waiter's address
-    assert "op-b" in message   # the waiting purpose
-    assert "op-a" in message   # the current holder
+    assert "op-b" in message  # the waiting purpose
+    assert "op-a" in message  # the current holder
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,8 @@ async def test_uncontended_connection_emits_no_warning(caplog):
         pass
 
     warnings = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.name == _LOGGER_NAME and r.levelno == logging.WARNING
     ]
     assert warnings == []

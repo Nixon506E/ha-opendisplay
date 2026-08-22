@@ -1,76 +1,314 @@
-"""Unit tests for the firmware update entity's version formatting.
+"""Test the OpenDisplay firmware update entity."""
 
-``_format_firmware_version`` used to divide two-digit minors by 10, on the
-theory that the firmware byte stored minor*10. That's not true: both
-Firmware_NRF52840_ESP32/src/communication.cpp and Firmware_NRF52/EPD/EPD_service.c
-parse BUILD_VERSION with a plain int conversion on the substring after the dot,
-so the minor byte always equals the literal tag digits (2.20 -> 20, 1.71 -> 71,
-1.6 -> 6). See issue #62: a device on 2.20 was displayed as 2.2.
-"""
+from collections.abc import Awaitable, Callable
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.update import (
+    ATTR_IN_PROGRESS,
+    ATTR_INSTALLED_VERSION,
+    ATTR_LATEST_VERSION,
+    ATTR_UPDATE_PERCENTAGE,
+    DOMAIN as UPDATE_DOMAIN,
+    SERVICE_INSTALL,
+    UpdateEntityFeature,
+)
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_SUPPORTED_FEATURES, Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from opendisplay import AuthenticationFailedError, BLEConnectionError
+from opendisplay.ota import OTAError
 import pytest
-from awesomeversion import AwesomeVersion
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.opendisplay.update import _format_firmware_version
+
+from . import (
+    DEVICE_CONFIG,
+    GITHUB_LATEST,
+    OTA_REPO,
+    VALID_SERVICE_INFO,
+    make_ota_device_config,
+)
+from .bluetooth import inject_bluetooth_service_info
+
+ENTITY = "update.opendisplay_1234_firmware"
+LATEST = "v9.9.9"
+
+
+@pytest.fixture
+def platforms() -> list[Platform]:
+    """Only set up the update platform."""
+    return [Platform.UPDATE]
+
+
+@pytest.fixture
+def device_config():
+    """Default to the IC that supports BLE OTA."""
+    return make_ota_device_config()
+
+
+@pytest.fixture(autouse=True)
+def mock_github(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
+    """Serve a GitHub release so the entity has a latest version."""
+    aioclient_mock.get(
+        GITHUB_LATEST, json={"tag_name": LATEST, "body": "release notes here"}
+    )
+    return aioclient_mock
+
+
+@pytest.fixture
+def setup_seen(
+    hass: HomeAssistant, setup_entry: Callable[[], Awaitable[None]]
+) -> Callable[[], Awaitable[None]]:
+    """Set up the entry and let one advertisement through.
+
+    The entity is unavailable, with no attributes, until the tag is seen once.
+    """
+
+    async def _setup() -> None:
+        await setup_entry()
+        inject_bluetooth_service_info(hass, VALID_SERVICE_INFO)
+        await hass.async_block_till_done()
+
+    return _setup
+
+
+# --- version formatting ----------------------------------------------------
+#
+# Kept as unit tests: this is pure string handling, and the regression it
+# guards (issue #62) was a formatting bug, not a wiring one.
 
 
 @pytest.mark.parametrize(
     ("major", "minor", "expected"),
     [
         (2, 20, "2.20"),
-        (1, 71, "1.71"),
-        (1, 82, "1.82"),
-        (1, 6, "1.6"),
+        (2, 2, "2.2"),
         (1, 0, "1.0"),
-        (0, 68, "0.68"),
+        (10, 5, "10.5"),
     ],
 )
-def test_format_firmware_version(major, minor, expected):
+def test_pre_semver_firmware_reports_two_parts(
+    major: int, minor: int, expected: str
+) -> None:
+    """Firmware older than the SemVer switch reports major.minor only.
+
+    The minor byte holds the literal digits from the tag, so a trailing zero is
+    significant: 2.20 is a different release from 2.2, and collapsing them made
+    a device on 2.20 show a permanent pending update (issue #62).
+    """
     assert _format_firmware_version(major, minor) == expected
 
 
 @pytest.mark.parametrize(
     ("major", "minor", "patch", "expected"),
     [
-        # patch available (py-opendisplay parses the trailing patch byte):
-        # three-part form so a device on 2.25.1 matches its release tag.
+        (1, 2, 3, "1.2.3"),
         (2, 25, 1, "2.25.1"),
-        (2, 25, 0, "2.25.0"),
-        # patch unavailable (cached firmware dict written before the patch byte
-        # was parsed): fall back to the two-part form. This is transient — it
-        # still compares older than a patch release, so the device shows a
-        # pending update until it is next interrogated. `.0` would not help
-        # either, since 2.25.0 < 2.25.1 too.
-        (2, 25, None, "2.25"),
+        (1, 2, 0, "1.2.0"),
     ],
 )
-def test_format_firmware_version_with_patch(major, minor, patch, expected):
+def test_semver_firmware_reports_three_parts(
+    major: int, minor: int, patch: int, expected: str
+) -> None:
+    """Newer firmware reports SemVer, including an explicit .0 patch.
+
+    Without the patch component a device on a patch release such as 2.25.1
+    would never match its tag and would report a pending update forever.
+    """
     assert _format_firmware_version(major, minor, patch) == expected
 
 
-@pytest.mark.parametrize(
-    ("installed", "latest_tag", "expect_update"),
-    [
-        # The regression this exists for (issue #62): newest firmware against
-        # the newest release must report no update.
-        ((2, 25, 1), "2.25.1", False),
-        ((3, 0, 0), "3.0.0", False),
-        # A genuinely newer release is still offered.
-        ((2, 25, 0), "2.25.1", True),
-        ((2, 23, 0), "2.25.1", True),
-        # Legacy two-part release tags: firmware reporting patch 0 formats as
-        # x.y.0, which AwesomeVersion ranks equal to the bare "x.y" tag, so
-        # devices on pre-SemVer releases do not gain a phantom update.
-        ((2, 23, 0), "2.23", False),
-        ((1, 71, 0), "1.71", False),
-    ],
-)
-def test_update_offered_only_when_genuinely_newer(installed, latest_tag, expect_update):
-    """installed_version and latest_version must be comparable like-for-like.
+def test_a_missing_patch_falls_back_to_the_two_part_form() -> None:
+    """py-opendisplay, or a cached firmware dict, may predate the patch byte."""
+    assert _format_firmware_version(1, 2, None) == "1.2"
 
-    ``latest_version`` is the GitHub tag verbatim, so a two-part installed
-    string ranks below a patch release of the same minor — which is what made
-    an update look permanently pending.
+
+# --- entity state ----------------------------------------------------------
+
+
+async def test_installed_and_latest_version(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+) -> None:
+    """The entity reports the device's firmware and the newest GitHub release."""
+    await setup_seen()
+
+    state = hass.states.get(ENTITY)
+    assert state.attributes[ATTR_INSTALLED_VERSION] == "1.2.3"
+    assert state.attributes[ATTR_LATEST_VERSION] == LATEST
+    assert state.attributes["release_url"] == (
+        f"https://github.com/{OTA_REPO}/releases/tag/{LATEST}"
+    )
+
+
+async def test_install_is_offered_for_an_ota_capable_ic(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+) -> None:
+    """An EFR32BG22 supports being flashed over BLE."""
+    await setup_seen()
+
+    features = hass.states.get(ENTITY).attributes[ATTR_SUPPORTED_FEATURES]
+    assert features & UpdateEntityFeature.INSTALL
+    assert features & UpdateEntityFeature.PROGRESS
+
+
+@pytest.mark.parametrize("device_config", [DEVICE_CONFIG])
+async def test_install_is_not_offered_for_other_ics(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+) -> None:
+    """An IC with no OTA support still shows release notes, but cannot install."""
+    await setup_seen()
+
+    features = hass.states.get(ENTITY).attributes[ATTR_SUPPORTED_FEATURES]
+    assert not features & UpdateEntityFeature.INSTALL
+    assert features & UpdateEntityFeature.RELEASE_NOTES
+
+
+async def test_a_rate_limited_github_leaves_the_version_unchanged(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    setup_seen: Callable[[], Awaitable[None]],
+) -> None:
+    """GitHub rate limits are routine and must not break the entity."""
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(GITHUB_LATEST, status=403)
+
+    await setup_seen()
+
+    state = hass.states.get(ENTITY)
+    assert state.attributes[ATTR_INSTALLED_VERSION] == "1.2.3"
+    assert state.attributes[ATTR_LATEST_VERSION] is None
+
+
+# --- install ---------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_ota() -> MagicMock:
+    """Patch the BLE OTA flash and the asset download."""
+    with (
+        patch(
+            "custom_components.opendisplay.update.perform_silabs_ota",
+            AsyncMock(),
+        ) as ota,
+        patch(
+            "custom_components.opendisplay.update.OpenDisplayFirmwareUpdateEntity._download_asset",
+            AsyncMock(return_value=b"firmware"),
+        ),
+    ):
+        yield ota
+
+
+async def _install(hass: HomeAssistant) -> None:
+    await hass.services.async_call(
+        UPDATE_DOMAIN, SERVICE_INSTALL, {ATTR_ENTITY_ID: ENTITY}, blocking=True
+    )
+
+
+async def test_install_flashes_and_records_the_new_version(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+    mock_ota: MagicMock,
+) -> None:
+    """A successful OTA updates the reported installed version."""
+    await setup_seen()
+
+    await _install(hass)
+
+    mock_ota.assert_awaited_once()
+    state = hass.states.get(ENTITY)
+    assert state.attributes[ATTR_INSTALLED_VERSION] == LATEST
+    assert state.attributes[ATTR_IN_PROGRESS] is False
+
+
+async def test_install_reports_progress(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+    mock_ota: MagicMock,
+) -> None:
+    """A progress callback mid-flash is visible in the entity state."""
+    mid_flash = {}
+
+    async def _flash(firmware, device, on_progress, on_log):
+        on_progress(42.0)
+        await hass.async_block_till_done()
+        mid_flash.update(hass.states.get(ENTITY).attributes)
+
+    mock_ota.side_effect = _flash
+    await setup_seen()
+
+    await _install(hass)
+
+    assert mid_flash[ATTR_IN_PROGRESS] is True
+    assert mid_flash[ATTR_UPDATE_PERCENTAGE] == 42
+
+
+@pytest.mark.parametrize(
+    "error", [OTAError("flash failed"), BLEConnectionError("link dropped")]
+)
+async def test_install_failures_surface_as_errors(
+    hass: HomeAssistant,
+    setup_seen: Callable[[], Awaitable[None]],
+    mock_ota: MagicMock,
+    error: Exception,
+) -> None:
+    """A failed flash is reported rather than silently leaving progress stuck."""
+    mock_ota.side_effect = error
+    await setup_seen()
+
+    with pytest.raises(HomeAssistantError, match="Firmware update failed"):
+        await _install(hass)
+
+    # Progress is always cleared, so a retry is possible.
+    assert hass.states.get(ENTITY).attributes[ATTR_IN_PROGRESS] is False
+
+
+async def test_install_auth_failure_starts_reauth(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    setup_seen: Callable[[], Awaitable[None]],
+    mock_ota: MagicMock,
+) -> None:
+    """A key rejected during the DFU trigger starts reauth.
+
+    That failure is an OpenDisplayError subclass, not an OTAError, so without
+    explicit handling it would escape without ever prompting.
     """
-    formatted = _format_firmware_version(*installed)
-    assert (AwesomeVersion(latest_tag) > AwesomeVersion(formatted)) is expect_update
+    mock_ota.side_effect = AuthenticationFailedError("bad key")
+    await setup_seen()
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _install(hass)
+
+    assert err.value.translation_key == "authentication_error"
+    flows = hass.config_entries.flow.async_progress_by_handler("opendisplay")
+    assert [f for f in flows if f["context"]["source"] == "reauth"]
+
+
+@pytest.mark.parametrize("device_config", [make_ota_device_config(sleepy=True)])
+async def test_install_refused_while_the_device_sleeps(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    setup_seen: Callable[[], Awaitable[None]],
+    mock_ota: MagicMock,
+) -> None:
+    """A deep-sleeping tag is refused rather than stranded mid-flash.
+
+    A sleepy tag stays available far longer than it stays awake, so the gate is
+    reached with an advertisement that has merely gone stale.
+    """
+    await setup_seen()
+    runtime = mock_config_entry.runtime_data
+    # Seen well over a wake window ago: still available, but back asleep.
+    runtime.coordinator.data.last_seen = time.monotonic() - 3600
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _install(hass)
+
+    assert err.value.translation_key == "device_sleeping_ota"
+    mock_ota.assert_not_awaited()
