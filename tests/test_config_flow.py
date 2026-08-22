@@ -24,11 +24,22 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.opendisplay.const import (
     CONF_ENCRYPTION_KEY,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_TLS,
     CONNECT_PROBE_DEADLINE_S,
+    DEFAULT_TLS_PORT,
     DOMAIN,
 )
 
-from . import ENCRYPTION_KEY, NOT_OPENDISPLAY_SERVICE_INFO, VALID_SERVICE_INFO
+from . import (
+    ENCRYPTION_KEY,
+    NOT_OPENDISPLAY_SERVICE_INFO,
+    TEST_ADDRESS,
+    VALID_SERVICE_INFO,
+    ZEROCONF_INFO,
+    make_zeroconf_info,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -580,3 +591,98 @@ async def test_reauth_invalid_key_format(
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_ENCRYPTION_KEY: "invalid_key_format"}
+
+
+# --- WiFi (mDNS) discovery -------------------------------------------------
+
+
+async def test_zeroconf_discovery_creates_a_wifi_entry(hass: HomeAssistant) -> None:
+    """A tag discovered over WiFi first is confirmed and stored with its endpoint."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=ZEROCONF_INFO
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "zeroconf_confirm"
+
+    with patch(
+        "custom_components.opendisplay.config_flow.OpenDisplayConfigFlow._async_test_connection_tcp"
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        CONF_HOST: "192.168.1.50",
+        CONF_PORT: 1234,
+        CONF_TLS: False,
+    }
+    assert result["result"].unique_id == TEST_ADDRESS
+
+
+async def test_zeroconf_without_a_mac_is_ignored(hass: HomeAssistant) -> None:
+    """Identity is anchored on the BLE MAC; a record without one cannot be matched."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=make_zeroconf_info(properties={}),
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_mac"
+
+
+async def test_zeroconf_adds_the_lan_endpoint_to_an_existing_ble_entry(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A BLE-configured tag gains host/port/tls when it is later seen over mDNS.
+
+    This is what lets a tag set up over Bluetooth start using WiFi delivery.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=ZEROCONF_INFO
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert mock_config_entry.data[CONF_HOST] == "192.168.1.50"
+    assert mock_config_entry.data[CONF_PORT] == 1234
+    assert mock_config_entry.data[CONF_TLS] is False
+
+
+async def test_zeroconf_tls_record_uses_the_tls_port_default(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A TLS record with no explicit port falls back to the TLS default."""
+    mock_config_entry.add_to_hass(hass)
+
+    await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=make_zeroconf_info(
+            port=None, properties={"mac": TEST_ADDRESS, "tls": "1"}
+        ),
+    )
+
+    assert mock_config_entry.data[CONF_TLS] is True
+    assert mock_config_entry.data[CONF_PORT] == DEFAULT_TLS_PORT
+
+
+async def test_zeroconf_confirm_reports_an_unreachable_endpoint(
+    hass: HomeAssistant,
+) -> None:
+    """A probe failure keeps the user on the form rather than storing a dead host."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=ZEROCONF_INFO
+    )
+
+    with patch(
+        "custom_components.opendisplay.config_flow.OpenDisplayConfigFlow._async_test_connection_tcp",
+        side_effect=OSError,
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
