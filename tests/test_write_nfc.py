@@ -10,6 +10,7 @@ and error translation can be exercised directly.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from opendisplay import NfcNotSupportedError, NfcWriteError
 import pytest
 import voluptuous as vol
@@ -25,7 +26,6 @@ from custom_components.opendisplay.services import (
     _async_write_nfc,
 )
 from custom_components.opendisplay.sleep import SleepProfile
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 DEVICE_ID = "device-1"
 
@@ -210,9 +210,7 @@ async def test_ha_tag_composes_url_and_quotes_special_characters():
     p1, p2 = _patches(entry, device)
     with p1, p2:
         await _async_write_nfc(_call(record_type="ha_tag", content="ifa booth 3"))
-    device.write_nfc_url.assert_awaited_once_with(
-        HA_TAG_URL_PREFIX + "ifa%20booth%203"
-    )
+    device.write_nfc_url.assert_awaited_once_with(HA_TAG_URL_PREFIX + "ifa%20booth%203")
 
 
 @pytest.mark.asyncio

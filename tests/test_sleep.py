@@ -33,7 +33,9 @@ def test_deep_sleep_enabled_requires_battery_and_interval():
 
 
 def test_sleep_mode_auto_follows_device():
-    assert _profile(sleep_mode="auto", power_mode=1, deep_sleep_time_seconds=300).is_sleepy
+    assert _profile(
+        sleep_mode="auto", power_mode=1, deep_sleep_time_seconds=300
+    ).is_sleepy
     assert not _profile(
         sleep_mode="auto", power_mode=2, deep_sleep_time_seconds=300
     ).is_sleepy
@@ -55,9 +57,7 @@ def test_wake_window_uses_firmware_default_when_zero():
 
 
 def test_availability_interval_formula():
-    profile = _profile(
-        sleep_timeout_ms=0, deep_sleep_time_seconds=300, missed_cycles=3
-    )
+    profile = _profile(sleep_timeout_ms=0, deep_sleep_time_seconds=300, missed_cycles=3)
     # 300 * 3 + 10 (default window) + 60 slack = 970
     expected = 300 * 3 + DEFAULT_WAKE_WINDOW_MS / 1000.0 + AVAILABILITY_SLACK_S
     assert profile.availability_interval == expected == 970.0

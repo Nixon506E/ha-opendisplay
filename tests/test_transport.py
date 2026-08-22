@@ -252,7 +252,8 @@ async def test_stale_host_uses_ble_directly():
 @pytest.mark.asyncio
 async def test_ble_unavailable_raises_supplied_exception():
     """When BLE is selected but no connectable device exists, the caller's
-    exception factory decides the outcome (e.g. _DeviceUnavailable)."""
+    exception factory decides the outcome (e.g. _DeviceUnavailable).
+    """
     entry = _entry(data={}, mdns_last_seen=None)  # no host -> BLE
     action = AsyncMock()
 
@@ -261,18 +262,16 @@ async def test_ble_unavailable_raises_supplied_exception():
 
     with (
         patch.object(transport_mod, "OpenDisplayDevice"),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=None
-        ),
+        patch.object(transport_mod, "async_ble_device_from_address", return_value=None),
+        pytest.raises(_Sentinel),
     ):
-        with pytest.raises(_Sentinel):
-            await async_run_with_fallback(
-                MagicMock(),
-                entry,
-                action,
-                base_kwargs={},
-                ble_unavailable=_Sentinel,
-            )
+        await async_run_with_fallback(
+            MagicMock(),
+            entry,
+            action,
+            base_kwargs={},
+            ble_unavailable=_Sentinel,
+        )
 
     action.assert_not_awaited()
 

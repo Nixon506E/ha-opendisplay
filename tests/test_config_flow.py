@@ -1,230 +1,582 @@
-"""Unit tests for the options-flow schema (sliding-window transfer options).
+"""Test the OpenDisplay config flow."""
 
-Mirrors the other test modules: no Home Assistant test harness; the schema is
-exercised directly via ``_options_schema()`` — a plain voluptuous schema — so a
-round-trip through it is exactly what the options flow persists.
-"""
+import asyncio
+from collections.abc import Generator
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
-
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.util import dt as dt_util
+from opendisplay import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    BLETimeoutError,
+    OpenDisplayError,
+)
 import pytest
-import voluptuous as vol
-
-from homeassistant.data_entry_flow import AbortFlow
-
-from custom_components.opendisplay.config_flow import (
-    OpenDisplayConfigFlow,
-    _options_schema,
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
 )
+
 from custom_components.opendisplay.const import (
-    CONF_BLOCKS_PER_ACK,
-    CONF_HOST,
-    CONF_MAX_QUEUE_SIZE,
-    CONF_MISSED_CYCLES,
-    CONF_PORT,
-    CONF_PROBE_BEFORE_QUEUE,
-    CONF_QUEUE_TIMEOUT_HOURS,
-    CONF_SLEEP_MODE,
-    CONF_TLS,
-    DEFAULT_BLOCKS_PER_ACK,
-    DEFAULT_MAX_QUEUE_SIZE,
-    DEFAULT_MISSED_CYCLES,
-    DEFAULT_PROBE_BEFORE_QUEUE,
-    DEFAULT_QUEUE_TIMEOUT_HOURS,
-    DEFAULT_SLEEP_MODE,
+    CONF_ENCRYPTION_KEY,
+    CONNECT_PROBE_DEADLINE_S,
+    DOMAIN,
 )
 
-
-def test_options_schema_defaults():
-    """An empty submission resolves every option to its default."""
-    result = _options_schema()({})
-
-    assert result[CONF_SLEEP_MODE] == DEFAULT_SLEEP_MODE
-    assert result[CONF_MISSED_CYCLES] == DEFAULT_MISSED_CYCLES
-    assert result[CONF_QUEUE_TIMEOUT_HOURS] == DEFAULT_QUEUE_TIMEOUT_HOURS
-    assert result[CONF_PROBE_BEFORE_QUEUE] == DEFAULT_PROBE_BEFORE_QUEUE
-    assert result[CONF_BLOCKS_PER_ACK] == DEFAULT_BLOCKS_PER_ACK
-    assert result[CONF_MAX_QUEUE_SIZE] == DEFAULT_MAX_QUEUE_SIZE
+from . import ENCRYPTION_KEY, NOT_OPENDISPLAY_SERVICE_INFO, VALID_SERVICE_INFO
 
 
-def test_options_schema_custom_values_persist():
-    """Custom values round-trip, coerced to int (NumberSelector yields floats)."""
-    result = _options_schema()(
-        {
-            CONF_SLEEP_MODE: DEFAULT_SLEEP_MODE,
-            CONF_MISSED_CYCLES: DEFAULT_MISSED_CYCLES,
-            CONF_QUEUE_TIMEOUT_HOURS: DEFAULT_QUEUE_TIMEOUT_HOURS,
-            CONF_PROBE_BEFORE_QUEUE: DEFAULT_PROBE_BEFORE_QUEUE,
-            CONF_BLOCKS_PER_ACK: 4.0,
-            CONF_MAX_QUEUE_SIZE: 1,
-        }
+@pytest.fixture(autouse=True)
+def mock_setup_entry() -> Generator[None]:
+    """Prevent the integration from actually setting up after config flow."""
+    with patch(
+        "custom_components.opendisplay.async_setup_entry",
+        return_value=True,
+    ):
+        yield
+
+
+async def test_bluetooth_discovery(hass: HomeAssistant) -> None:
+    """Test discovery via Bluetooth with a valid device."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "bluetooth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
     )
 
-    assert result[CONF_BLOCKS_PER_ACK] == 4
-    assert isinstance(result[CONF_BLOCKS_PER_ACK], int)
-    assert result[CONF_MAX_QUEUE_SIZE] == 1  # 1 == fast transfer disabled
-    assert isinstance(result[CONF_MAX_QUEUE_SIZE], int)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "OpenDisplay 1234"
+    assert result["data"] == {}
+    assert result["result"].unique_id == "AA:BB:CC:DD:EE:FF"
 
 
-@pytest.mark.parametrize("key", [CONF_BLOCKS_PER_ACK, CONF_MAX_QUEUE_SIZE])
-@pytest.mark.parametrize("value", [0, 33])
-def test_options_schema_rejects_out_of_range(key, value):
-    """Both options are bounded to the protocol's 1..32 window range."""
-    with pytest.raises(vol.Invalid):
-        _options_schema()({key: value})
+async def test_bluetooth_discovery_already_configured(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test discovery aborts when device is already configured."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
 
 
-# -- zeroconf (WiFi/mDNS) discovery ----------------------------------------
-#
-# These drive the config-flow steps directly with the base-class HA touchpoints
-# mocked (no flow manager), mirroring the mocked-namespace style of the other
-# test modules. The unique_id is the uppercase-colon BLE MAC so a WiFi discovery
-# dedups onto an existing BLE entry.
+async def test_bluetooth_discovery_already_in_progress(hass: HomeAssistant) -> None:
+    """Test discovery aborts when same device flow is in progress."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    assert result["type"] is FlowResultType.FORM
 
-MAC_LOWER = "aa:bb:cc:dd:ee:ff"
-MAC_UPPER = "AA:BB:CC:DD:EE:FF"
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_in_progress"
 
 
-def _zeroconf_info(properties, *, host="1.2.3.4", port=2446, name=None):
-    """A ZeroconfServiceInfo stand-in (only the attributes the step reads)."""
-    return SimpleNamespace(
-        host=host,
-        port=port,
-        name=name if name is not None else "tag._opendisplay._tcp.local.",
-        properties=properties,
+@pytest.mark.parametrize(
+    ("exception", "expected_reason"),
+    [
+        (BLEConnectionError("test"), "cannot_connect"),
+        (BLETimeoutError("test"), "cannot_connect"),
+        (OpenDisplayError("test"), "cannot_connect"),
+        (RuntimeError("test"), "unknown"),
+    ],
+)
+async def test_bluetooth_confirm_connection_error(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+    exception: Exception,
+    expected_reason: str,
+) -> None:
+    """Test the confirm step shows an error and allows a retry when connecting fails."""
+    mock_opendisplay_device.__aenter__.side_effect = exception
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "bluetooth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
     )
 
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "bluetooth_confirm"
+    assert result["errors"] == {"base": expected_reason}
 
-def _flow(entries=()):
-    """A config flow with base-class HA methods mocked out."""
-    flow = OpenDisplayConfigFlow()
-    flow.hass = MagicMock()
-    flow.hass.config_entries.async_entries = MagicMock(return_value=list(entries))
-    flow.context = {}
-    flow.async_set_unique_id = AsyncMock()
-    flow._abort_if_unique_id_configured = MagicMock()
-    flow.async_abort = MagicMock(side_effect=lambda **kw: {"type": "abort", **kw})
-    flow.async_show_form = MagicMock(side_effect=lambda **kw: {"type": "form", **kw})
-    flow.async_create_entry = MagicMock(
-        side_effect=lambda **kw: {"type": "create_entry", **kw}
+    mock_opendisplay_device.__aenter__.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
     )
-    flow._set_confirm_only = MagicMock()
-    return flow
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
-@pytest.mark.asyncio
-async def test_zeroconf_missing_mac_aborts():
-    """A record without a mac TXT key cannot be correlated -> abort no_mac."""
-    flow = _flow()
-    result = await flow.async_step_zeroconf(_zeroconf_info({"tls": "0"}))
-
-    assert result["reason"] == "no_mac"
-    flow.async_set_unique_id.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_zeroconf_new_device_shows_confirm_and_uppercases_id():
-    """A never-configured device: unique_id uppercased, confirm form shown."""
-    flow = _flow(entries=[])
-    result = await flow.async_step_zeroconf(
-        _zeroconf_info({"mac": MAC_LOWER, "tls": "0"})
+async def test_bluetooth_discovery_does_not_connect(
+    hass: HomeAssistant,
+    mock_opendisplay_device_class: MagicMock,
+) -> None:
+    """Test that discovery alone never opens a connection to the device."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
     )
 
-    flow.async_set_unique_id.assert_awaited_once_with(MAC_UPPER)
-    flow._abort_if_unique_id_configured.assert_called_once()
-    assert result["type"] == "form"
-    assert result["step_id"] == "zeroconf_confirm"
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "bluetooth_confirm"
+    mock_opendisplay_device_class.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_zeroconf_existing_ble_entry_gains_host_and_aborts():
-    """An existing (BLE) entry: merge host/port/tls, then abort already_configured."""
-    flow = _flow()
-    flow._abort_if_unique_id_configured.side_effect = AbortFlow("already_configured")
+async def test_bluetooth_confirm_ble_device_not_found(
+    hass: HomeAssistant,
+) -> None:
+    """Test the confirm step reports an error when the BLE device is not found."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
 
-    with pytest.raises(AbortFlow):
-        await flow.async_step_zeroconf(
-            _zeroconf_info(
-                {"mac": MAC_LOWER, "tls": "1"}, host="10.0.0.9", port=2447
-            )
+    with patch(
+        "custom_components.opendisplay.config_flow.async_ble_device_from_address",
+        return_value=None,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
         )
 
-    # unique_id reconciled to uppercase, and the existing entry is updated with
-    # the live LAN endpoint (tls "1" -> True).
-    flow.async_set_unique_id.assert_awaited_once_with(MAC_UPPER)
-    updates = flow._abort_if_unique_id_configured.call_args.kwargs["updates"]
-    assert updates == {CONF_HOST: "10.0.0.9", CONF_PORT: 2447, CONF_TLS: True}
-
-
-@pytest.mark.asyncio
-async def test_zeroconf_feeds_mdns_presence_to_configured_entry():
-    """A sighting of a configured entry records mDNS presence + wakes delivery."""
-    delivery = MagicMock()
-    entry = SimpleNamespace(
-        unique_id=MAC_UPPER,
-        runtime_data=SimpleNamespace(mdns_last_seen=None, delivery=delivery),
-    )
-    flow = _flow(entries=[entry])
-    flow._abort_if_unique_id_configured.side_effect = AbortFlow("already_configured")
-
-    with pytest.raises(AbortFlow):
-        await flow.async_step_zeroconf(
-            _zeroconf_info({"mac": MAC_LOWER, "tls": "0"})
-        )
-
-    assert entry.runtime_data.mdns_last_seen is not None
-    delivery.notify_device_seen.assert_called_once_with("mdns")
-
-
-@pytest.mark.asyncio
-async def test_zeroconf_confirm_probes_tcp_and_creates_entry():
-    """Confirming a new WiFi device probes TCP then creates a host/port/tls entry."""
-    flow = _flow(entries=[])
-    await flow.async_step_zeroconf(
-        _zeroconf_info({"mac": MAC_LOWER, "tls": "0"}, host="1.2.3.4", port=2446)
-    )
-    flow._async_test_connection_tcp = AsyncMock()
-
-    result = await flow.async_step_zeroconf_confirm(user_input={})
-
-    flow._async_test_connection_tcp.assert_awaited_once_with("1.2.3.4", 2446)
-    assert result["type"] == "create_entry"
-    assert result["data"] == {
-        CONF_HOST: "1.2.3.4",
-        CONF_PORT: 2446,
-        CONF_TLS: False,
-    }
-
-
-@pytest.mark.asyncio
-async def test_zeroconf_confirm_tcp_unreachable_shows_error():
-    """A failed TCP probe re-shows the confirm form with cannot_connect."""
-    flow = _flow(entries=[])
-    await flow.async_step_zeroconf(
-        _zeroconf_info({"mac": MAC_LOWER, "tls": "0"})
-    )
-    flow._async_test_connection_tcp = AsyncMock(side_effect=OSError("refused"))
-
-    result = await flow.async_step_zeroconf_confirm(user_input={})
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "zeroconf_confirm"
+    assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
-    flow.async_create_entry.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_zeroconf_tls_port_default_when_port_absent():
-    """When the SRV record omits a port, tls TXT selects the derived TLS port."""
-    flow = _flow()
-    flow._abort_if_unique_id_configured.side_effect = AbortFlow("already_configured")
+async def test_bluetooth_confirm_connection_timeout(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """Test that a device which stops responding does not hang the flow."""
 
-    with pytest.raises(AbortFlow):
-        await flow.async_step_zeroconf(
-            _zeroconf_info({"mac": MAC_LOWER, "tls": "1"}, port=None)
+    async def _never_returns(*args: object, **kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    mock_opendisplay_device.read_firmware_version.side_effect = _never_returns
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+
+    task = hass.async_create_task(
+        hass.config_entries.flow.async_configure(result["flow_id"], user_input={})
+    )
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=CONNECT_PROBE_DEADLINE_S)
+    )
+    result = await task
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_user_step_with_devices(hass: HomeAssistant) -> None:
+    """Test user step with discovered devices."""
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[VALID_SERVICE_INFO],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
         )
 
-    updates = flow._abort_if_unique_id_configured.call_args.kwargs["updates"]
-    assert updates[CONF_PORT] == 2447
-    assert updates[CONF_TLS] is True
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"address": "AA:BB:CC:DD:EE:FF"},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "OpenDisplay 1234"
+    assert result["data"] == {}
+    assert result["result"].unique_id == "AA:BB:CC:DD:EE:FF"
+
+
+async def test_user_step_no_devices(hass: HomeAssistant) -> None:
+    """Test user step when no devices are discovered."""
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_devices_found"
+
+
+async def test_user_step_filters_unsupported(hass: HomeAssistant) -> None:
+    """Test user step filters out unsupported devices."""
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[NOT_OPENDISPLAY_SERVICE_INFO],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_devices_found"
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected_error"),
+    [
+        (BLEConnectionError("test"), "cannot_connect"),
+        (BLETimeoutError("test"), "cannot_connect"),
+        (OpenDisplayError("test"), "cannot_connect"),
+        (RuntimeError("test"), "unknown"),
+    ],
+)
+async def test_user_step_connection_error(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+    exception: Exception,
+    expected_error: str,
+) -> None:
+    """Test user step handles connection and unexpected errors."""
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[VALID_SERVICE_INFO],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+
+    mock_opendisplay_device.__aenter__.side_effect = exception
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"address": "AA:BB:CC:DD:EE:FF"},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": expected_error}
+
+    mock_opendisplay_device.__aenter__.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"address": "AA:BB:CC:DD:EE:FF"},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_user_step_already_configured(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test user step aborts when device is already configured."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[VALID_SERVICE_INFO],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+    # Device is filtered out since it's already configured
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_devices_found"
+
+
+async def test_bluetooth_discovery_encrypted_device(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """Test Bluetooth discovery prompts for key when device requires encryption."""
+    mock_opendisplay_device.__aenter__.side_effect = [
+        AuthenticationRequiredError("auth required"),
+        mock_opendisplay_device,
+    ]
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "encryption_key"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_ENCRYPTION_KEY: ENCRYPTION_KEY}
+
+
+async def test_bluetooth_discovery_encrypted_invalid_key_format(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """Test encryption_key step shows error on invalid key format."""
+    mock_opendisplay_device.__aenter__.side_effect = [
+        AuthenticationRequiredError("auth required"),
+        mock_opendisplay_device,
+    ]
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["step_id"] == "encryption_key"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: "tooshort"},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "encryption_key"
+    assert result["errors"] == {CONF_ENCRYPTION_KEY: "invalid_key_format"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_bluetooth_discovery_encrypted_wrong_key(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """Test encryption_key step shows error on wrong key, then succeeds."""
+    mock_opendisplay_device.__aenter__.side_effect = [
+        AuthenticationRequiredError("auth required"),
+        AuthenticationFailedError("wrong key"),
+        mock_opendisplay_device,
+    ]
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=VALID_SERVICE_INFO,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["step_id"] == "encryption_key"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_ENCRYPTION_KEY: "invalid_auth"}
+
+    mock_opendisplay_device.__aenter__.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_ENCRYPTION_KEY: ENCRYPTION_KEY}
+
+
+async def test_user_step_encrypted_device(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """Test user step prompts for key when device requires encryption."""
+    mock_opendisplay_device.__aenter__.side_effect = [
+        AuthenticationRequiredError("auth required"),
+        mock_opendisplay_device,
+    ]
+
+    with patch(
+        "custom_components.opendisplay.config_flow.async_discovered_service_info",
+        return_value=[VALID_SERVICE_INFO],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"address": "AA:BB:CC:DD:EE:FF"},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "encryption_key"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_ENCRYPTION_KEY: ENCRYPTION_KEY}
+
+
+async def test_reauth_update_key(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+    mock_encrypted_config_entry: MockConfigEntry,
+) -> None:
+    """Test reauth flow updates the encryption key."""
+    mock_encrypted_config_entry.add_to_hass(hass)
+    new_key = "11223344556677881122334455667788"
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": mock_encrypted_config_entry.entry_id,
+        },
+        data=mock_encrypted_config_entry.data,
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: new_key},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_encrypted_config_entry.data[CONF_ENCRYPTION_KEY] == new_key
+
+
+async def test_reauth_remove_key(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+    mock_encrypted_config_entry: MockConfigEntry,
+) -> None:
+    """Test reauth flow removes the encryption key when left blank."""
+    mock_encrypted_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": mock_encrypted_config_entry.entry_id,
+        },
+        data=mock_encrypted_config_entry.data,
+    )
+    assert result["step_id"] == "reauth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ""},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert CONF_ENCRYPTION_KEY not in mock_encrypted_config_entry.data
+
+
+async def test_reauth_wrong_key(
+    hass: HomeAssistant,
+    mock_opendisplay_device: MagicMock,
+    mock_encrypted_config_entry: MockConfigEntry,
+) -> None:
+    """Test reauth form shows error for wrong key, then succeeds."""
+    mock_encrypted_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": mock_encrypted_config_entry.entry_id,
+        },
+        data=mock_encrypted_config_entry.data,
+    )
+    assert result["step_id"] == "reauth_confirm"
+
+    mock_opendisplay_device.__aenter__.side_effect = [
+        AuthenticationFailedError("wrong key"),
+        mock_opendisplay_device,
+    ]
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_ENCRYPTION_KEY: "invalid_auth"}
+
+    mock_opendisplay_device.__aenter__.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: ENCRYPTION_KEY},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+
+
+async def test_reauth_invalid_key_format(
+    hass: HomeAssistant,
+    mock_encrypted_config_entry: MockConfigEntry,
+) -> None:
+    """Test reauth form shows error for a malformed encryption key."""
+    mock_encrypted_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": mock_encrypted_config_entry.entry_id,
+        },
+        data=mock_encrypted_config_entry.data,
+    )
+    assert result["step_id"] == "reauth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENCRYPTION_KEY: "notvalidhex!"},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_ENCRYPTION_KEY: "invalid_key_format"}

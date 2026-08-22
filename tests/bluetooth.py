@@ -35,6 +35,7 @@ __all__ = (
     "inject_bluetooth_service_info",
     "inject_bluetooth_service_info_bleak",
     "patch_all_discovered_devices",
+    "patch_bluetooth_time",
 )
 
 ADVERTISEMENT_DATA_DEFAULTS = {
@@ -51,6 +52,20 @@ BLE_DEVICE_DEFAULTS = {
     "name": None,
     "details": None,
 }
+
+
+@contextmanager
+def patch_bluetooth_time(mock_time: float) -> Generator[None]:
+    """Patch the bluetooth time."""
+    with (
+        patch(
+            "homeassistant.components.bluetooth.MONOTONIC_TIME", return_value=mock_time
+        ),
+        patch("habluetooth.base_scanner.monotonic_time_coarse", return_value=mock_time),
+        patch("habluetooth.manager.monotonic_time_coarse", return_value=mock_time),
+        patch("habluetooth.scanner.monotonic_time_coarse", return_value=mock_time),
+    ):
+        yield
 
 
 def generate_advertisement_data(**kwargs: Any) -> AdvertisementData:

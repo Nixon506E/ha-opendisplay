@@ -80,6 +80,17 @@ def mock_recorder(recorder_mock: object) -> None:
     """Give every test an in-memory recorder instance."""
 
 
+# Lives in core's tests/components/conftest.py, which PHCC does not ship.
+@pytest.fixture
+def entity_registry_enabled_by_default() -> Generator[None]:
+    """Ensure entities that are disabled by default get registered anyway."""
+    with patch(
+        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
+        return_value=True,
+    ):
+        yield
+
+
 @contextmanager
 def _patch_each(targets: tuple[str, ...], **kwargs: Any) -> Generator[None]:
     """Patch several dotted targets with the same replacement."""

@@ -5,8 +5,8 @@ These avoid the full Home Assistant test harness: ``async_last_service_info``
 the entity's ``native_value`` property is asserted directly.
 """
 
+from datetime import UTC, datetime
 import time
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -42,7 +42,7 @@ def test_native_value_converts_monotonic_to_wall_time():
     # A monotonic "now" maps to wall-clock "now"; must be tz-aware for TIMESTAMP.
     assert isinstance(value, datetime)
     assert value.tzinfo is not None
-    expected = datetime.now(tz=timezone.utc)
+    expected = datetime.now(tz=UTC)
     assert abs((value - expected).total_seconds()) < 2
 
     # The stack is queried with connectable=False to match the advertisement

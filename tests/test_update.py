@@ -8,8 +8,8 @@ so the minor byte always equals the literal tag digits (2.20 -> 20, 1.71 -> 71,
 1.6 -> 6). See issue #62: a device on 2.20 was displayed as 2.2.
 """
 
-import pytest
 from awesomeversion import AwesomeVersion
+import pytest
 
 from custom_components.opendisplay.update import _format_firmware_version
 
