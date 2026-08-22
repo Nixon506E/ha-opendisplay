@@ -23,7 +23,13 @@ from opendisplay import (
     SystemConfig,
     WifiConfig,
 )
-from opendisplay.models.config import NfcConfig, SensorData, TouchController
+from opendisplay.models.config import (
+    LedConfig,
+    NfcConfig,
+    PassiveBuzzer,
+    SensorData,
+    TouchController,
+)
 from opendisplay.models.config_json import config_to_json
 from opendisplay.models.enums import ICType, PowerMode, SensorType
 
@@ -375,6 +381,44 @@ def make_ota_device_config(sleepy: bool = False) -> GlobalConfig:
         manufacturer=DEVICE_CONFIG.manufacturer,
         power=make_sleepy_device_config().power if sleepy else DEVICE_CONFIG.power,
         displays=DEVICE_CONFIG.displays,
+    )
+
+
+def make_notifier_device_config(
+    leds: bool = True, buzzers: bool = True, sleepy: bool = False
+) -> GlobalConfig:
+    """Return a GlobalConfig with LED and/or buzzer hardware fitted."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=make_sleepy_device_config().power if sleepy else DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
+        leds=[
+            LedConfig(
+                instance_number=0,
+                led_type=1,
+                led_1_r=1,
+                led_2_g=2,
+                led_3_b=3,
+                led_4=0xFF,
+                led_flags=0,
+                reserved=b"\x00" * 4,
+            )
+        ]
+        if leds
+        else [],
+        buzzers=[
+            PassiveBuzzer(
+                instance_number=0,
+                drive_pin=4,
+                enable_pin=0xFF,
+                flags=0,
+                duty_percent=50,
+                reserved=b"\x00" * 4,
+            )
+        ]
+        if buzzers
+        else [],
     )
 
 

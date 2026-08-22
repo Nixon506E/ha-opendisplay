@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Generator
 import io
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 from homeassistant import config_entries
@@ -27,7 +27,7 @@ import voluptuous as vol
 from custom_components.opendisplay.const import CONF_ENCRYPTION_KEY, DOMAIN
 from custom_components.opendisplay.services import HA_TAG_URL_PREFIX, NFC_MAX_PAYLOAD
 
-from . import ENCRYPTION_KEY, make_nfc_device_config
+from . import ENCRYPTION_KEY, make_nfc_device_config, make_notifier_device_config
 
 
 @pytest.fixture(autouse=True)
@@ -703,3 +703,283 @@ async def test_write_nfc_rejected_while_the_device_sleeps(
         )
 
     assert err.value.translation_key == "device_sleeping"
+
+
+# --- activate_led / activate_buzzer / play_melody ---------------------------
+
+
+@pytest.fixture
+def mock_connect(mock_opendisplay_device: MagicMock) -> Generator[MagicMock]:
+    """Run a service's BLE body against the mocked device, without connecting."""
+
+    async def _run(hass, entry, action):
+        return await action(mock_opendisplay_device)
+
+    with patch("custom_components.opendisplay.services._async_connect_and_run", _run):
+        yield mock_opendisplay_device
+
+
+async def _call(hass: HomeAssistant, service: str, device_id: str, **data) -> None:
+    await hass.services.async_call(
+        DOMAIN, service, {"device_id": device_id, **data}, blocking=True
+    )
+
+
+@pytest.mark.parametrize("device_config", [make_notifier_device_config()])
+async def test_activate_led(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+) -> None:
+    """The LED flash configuration reaches the device."""
+    await _call(hass, "activate_led", _device_id(hass, mock_config_entry), brightness=5)
+
+    instance, flash_config = mock_connect.activate_led.await_args.args
+    assert instance == 0
+    assert flash_config.brightness == 5
+
+
+@pytest.mark.parametrize("device_config", [make_notifier_device_config()])
+async def test_activate_buzzer(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+) -> None:
+    """A single tone reaches the device with its frequency and duration."""
+    await _call(
+        hass,
+        "activate_buzzer",
+        _device_id(hass, mock_config_entry),
+        frequency_hz=440,
+        duration_ms=250,
+    )
+
+    mock_connect.activate_buzzer.assert_awaited_once()
+
+
+@pytest.mark.parametrize("device_config", [make_notifier_device_config()])
+async def test_play_melody(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+) -> None:
+    """A melody string is compiled and sent to the buzzer."""
+    await _call(
+        hass, "play_melody", _device_id(hass, mock_config_entry), notes="C4 D4 E4 F4"
+    )
+
+    mock_connect.activate_buzzer.assert_awaited_once()
+
+
+@pytest.mark.parametrize("device_config", [make_notifier_device_config()])
+async def test_play_melody_rejects_an_unplayable_melody(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+) -> None:
+    """A note too long for the firmware at the chosen tempo is a user error.
+
+    The schema validates note syntax at the default tempo, so tempo-dependent
+    overflow can only be caught by the handler: a quarter note is 500 ms at
+    tempo 120 but 1500 ms at tempo 40, past the firmware's 1275 ms ceiling.
+    """
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(
+            hass,
+            "play_melody",
+            _device_id(hass, mock_config_entry),
+            notes="C4",
+            tempo=40,
+            default_length=4,
+        )
+
+    assert err.value.translation_key == "invalid_melody"
+
+
+@pytest.mark.parametrize(
+    ("service", "device_config", "translation_key", "extra"),
+    [
+        (
+            "activate_led",
+            make_notifier_device_config(leds=False),
+            "no_leds",
+            {},
+        ),
+        (
+            "activate_buzzer",
+            make_notifier_device_config(buzzers=False),
+            "no_buzzers",
+            {},
+        ),
+        (
+            "play_melody",
+            make_notifier_device_config(buzzers=False),
+            "no_buzzers",
+            {"notes": "C4"},
+        ),
+    ],
+    ids=["led", "buzzer", "melody"],
+)
+async def test_notifier_services_need_the_hardware(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+    service: str,
+    translation_key: str,
+    extra: dict,
+) -> None:
+    """A device without the hardware rejects the call instead of connecting."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, service, _device_id(hass, mock_config_entry), **extra)
+
+    assert err.value.translation_key == translation_key
+    mock_connect.activate_led.assert_not_awaited()
+    mock_connect.activate_buzzer.assert_not_awaited()
+
+
+@pytest.mark.parametrize("device_config", [make_notifier_device_config(sleepy=True)])
+async def test_notifications_are_refused_while_the_device_sleeps(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_connect: MagicMock,
+) -> None:
+    """An LED flash that fires hours late is worse than an error.
+
+    Unlike an image, a notification cannot usefully be queued for the next
+    wake, so a sleeping tag rejects it outright.
+    """
+    with pytest.raises(HomeAssistantError):
+        await _call(hass, "activate_led", _device_id(hass, mock_config_entry))
+
+    mock_connect.activate_led.assert_not_awaited()
+
+
+# --- drawcustom -------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_render() -> Generator[MagicMock]:
+    """Render a real 1x1 image without invoking the drawing engine."""
+    with patch(
+        "custom_components.opendisplay.services.generate_image",
+        AsyncMock(return_value=PILImage.new("RGB", (10, 10))),
+    ) as render:
+        yield render
+
+
+async def test_drawcustom_renders_and_uploads(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_upload_device: MagicMock,
+    mock_render: MagicMock,
+) -> None:
+    """A payload is rendered at the panel's size and sent to the device."""
+    response = await hass.services.async_call(
+        DOMAIN,
+        "drawcustom",
+        {
+            "device_id": [_device_id(hass, mock_config_entry)],
+            "payload": [{"type": "text", "value": "hi"}],
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert mock_render.await_args.kwargs["width"] == 296
+    assert mock_render.await_args.kwargs["height"] == 128
+    mock_upload_device.upload_prepared_image.assert_awaited_once()
+    assert response["status"] == "delivered"
+
+
+async def test_drawcustom_dry_run_previews_without_uploading(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_upload_device: MagicMock,
+    mock_render: MagicMock,
+) -> None:
+    """A dry run shows what would be sent but never touches the panel."""
+    response = await hass.services.async_call(
+        DOMAIN,
+        "drawcustom",
+        {
+            "device_id": [_device_id(hass, mock_config_entry)],
+            "payload": [{"type": "text", "value": "hi"}],
+            "dry-run": True,
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["status"] == "dry_run"
+    mock_upload_device.upload_prepared_image.assert_not_awaited()
+
+
+async def test_drawcustom_needs_a_target(
+    hass: HomeAssistant, mock_render: MagicMock
+) -> None:
+    """A call naming no device, area or label has nothing to draw on."""
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "drawcustom",
+            {"payload": [{"type": "text", "value": "hi"}]},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_key == "no_targets_specified"
+
+
+async def test_drawcustom_reports_every_failed_target(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_render: MagicMock,
+) -> None:
+    """One bad device id does not silently disappear from a multi-target call.
+
+    Failures are collected across targets and raised together, so a batch
+    reports each device that could not be drawn rather than the first only.
+    """
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "drawcustom",
+            {
+                "device_id": [_device_id(hass, mock_config_entry), "not-a-device"],
+                "payload": [{"type": "text", "value": "hi"}],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_key == "multiple_errors"
+    assert "not-a-device" in err.value.translation_placeholders["errors"]
+
+
+async def test_drawcustom_transposes_the_canvas_for_a_rotated_panel(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_upload_device: MagicMock,
+    mock_render: MagicMock,
+) -> None:
+    """A 90-degree rotation renders transposed so the device fit stays 1:1.
+
+    The payload is authored against the final on-screen orientation, and the
+    device applies the rotation itself; rendering portrait-shaped content onto
+    a landscape canvas would make the device scale and centre a mismatched
+    image instead.
+    """
+    await hass.services.async_call(
+        DOMAIN,
+        "drawcustom",
+        {
+            "device_id": [_device_id(hass, mock_config_entry)],
+            "payload": [{"type": "text", "value": "hi"}],
+            "rotate": 90,
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert mock_render.await_args.kwargs["width"] == 128
+    assert mock_render.await_args.kwargs["height"] == 296
