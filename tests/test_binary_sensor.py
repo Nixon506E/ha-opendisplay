@@ -39,6 +39,7 @@ async def test_update_pending_created_and_off_when_nothing_queued(
     assert state.attributes["expires_at"] is None
     assert state.attributes["attempts"] == 0
     assert state.attributes["last_error"] is None
+    assert state.attributes["auth_paused"] is False
 
 
 async def test_update_pending_turns_on_when_content_is_queued(

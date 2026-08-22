@@ -44,6 +44,7 @@ async def test_entity_is_created(
     assert state is not None
     assert state.attributes["pending"] is False
     assert state.attributes["queued_at"] is None
+    assert state.attributes["auth_paused"] is False
 
 
 async def test_uploaded_image_is_served(
@@ -125,6 +126,7 @@ async def test_delivery_failure_is_surfaced(
             expires_at=None,
             attempts=2,
             last_error="BLE connection failed",
+            auth_paused=False,
         ),
     )
     await hass.async_block_till_done()

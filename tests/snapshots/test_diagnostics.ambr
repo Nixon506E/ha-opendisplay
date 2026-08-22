@@ -120,6 +120,7 @@
       'deep_sleep_time_seconds': 0,
       'delivery': dict({
         'attempts': 0,
+        'auth_paused': False,
         'expires_at': None,
         'last_error': None,
         'pending': False,
