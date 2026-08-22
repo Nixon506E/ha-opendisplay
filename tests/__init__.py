@@ -20,7 +20,7 @@ from opendisplay import (
     SystemConfig,
     WifiConfig,
 )
-from opendisplay.models.config import SensorData, TouchController
+from opendisplay.models.config import NfcConfig, SensorData, TouchController
 from opendisplay.models.config_json import config_to_json
 from opendisplay.models.enums import PowerMode, SensorType
 
@@ -319,6 +319,37 @@ def make_zeroconf_info(
 
 
 ZEROCONF_INFO = make_zeroconf_info()
+
+
+def make_nfc_device_config(enabled: bool = True, sleepy: bool = False) -> GlobalConfig:
+    """Return a GlobalConfig with one NFC tag, enabled via flags bit 0."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=make_sleepy_device_config().power if sleepy else DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
+        nfc_configs=[
+            NfcConfig(
+                instance_number=0,
+                nfc_ic_type=0,
+                bus_instance=0,
+                flags=0x01 if enabled else 0x00,
+                field_detect_pin=0xFF,
+                field_detect_mode=0,
+                field_detect_active=0,
+                field_detect_debounce_ms=0,
+                power_pin=0xFF,
+                power_active=0,
+                power_on_delay_ms=0,
+                power_off_delay_ms=0,
+                adv_button_byte_index=0,
+                adv_button_button_id=0,
+                reserved_pin_1=0xFF,
+                reserved_pin_2=0xFF,
+                reserved=b"\x00" * 4,
+            )
+        ],
+    )
 
 
 def make_wifi_device_config() -> GlobalConfig:

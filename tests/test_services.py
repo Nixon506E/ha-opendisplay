@@ -15,6 +15,8 @@ from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
     BLEConnectionError,
+    NfcNotSupportedError,
+    NfcWriteError,
 )
 from PIL import Image as PILImage
 import pytest
@@ -23,8 +25,9 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClien
 import voluptuous as vol
 
 from custom_components.opendisplay.const import CONF_ENCRYPTION_KEY, DOMAIN
+from custom_components.opendisplay.services import HA_TAG_URL_PREFIX, NFC_MAX_PAYLOAD
 
-from . import ENCRYPTION_KEY
+from . import ENCRYPTION_KEY, make_nfc_device_config
 
 
 @pytest.fixture(autouse=True)
@@ -393,3 +396,310 @@ async def test_upload_image_invalid_encryption_key_format(
 
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert any(f["context"]["source"] == config_entries.SOURCE_REAUTH for f in flows)
+
+
+# --- write_nfc -------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_nfc_write(mock_opendisplay_device: MagicMock) -> Generator[MagicMock]:
+    """Run the service's BLE body against the mocked device, without connecting."""
+
+    async def _run(hass, entry, action):
+        return await action(mock_opendisplay_device)
+
+    with patch("custom_components.opendisplay.services._async_connect_and_run", _run):
+        yield mock_opendisplay_device
+
+
+async def _write_nfc(hass: HomeAssistant, device_id: str, **data) -> None:
+    """Call write_nfc through the service registry."""
+    await hass.services.async_call(
+        DOMAIN, "write_nfc", {"device_id": device_id, **data}, blocking=True
+    )
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_url_is_the_default_record_type(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """Omitting record_type writes a URL record."""
+    await _write_nfc(
+        hass, _device_id(hass, mock_config_entry), content="http://a.test/"
+    )
+
+    mock_nfc_write.write_nfc_url.assert_awaited_once_with("http://a.test/")
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_text_record(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A text record goes to write_nfc_text."""
+    await _write_nfc(
+        hass, _device_id(hass, mock_config_entry), content="hello", record_type="text"
+    )
+
+    mock_nfc_write.write_nfc_text.assert_awaited_once_with("hello")
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_ha_tag_composes_and_quotes_the_url(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A ha_tag id becomes a home-assistant.io/tag URL with the id percent-encoded."""
+    await _write_nfc(
+        hass,
+        _device_id(hass, mock_config_entry),
+        content="tag/with spaces&stuff",
+        record_type="ha_tag",
+    )
+
+    mock_nfc_write.write_nfc_url.assert_awaited_once_with(
+        HA_TAG_URL_PREFIX + "tag%2Fwith%20spaces%26stuff"
+    )
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_mime_defaults_to_vcard(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A mime record with no mime_type defaults to text/vcard."""
+    await _write_nfc(
+        hass,
+        _device_id(hass, mock_config_entry),
+        content="BEGIN:VCARD",
+        record_type="mime",
+    )
+
+    assert mock_nfc_write.write_nfc_mime.await_args.args[0] == "text/vcard"
+
+
+@pytest.mark.parametrize(
+    "device_config", [make_nfc_device_config(enabled=False)], ids=["nfc-disabled"]
+)
+async def test_write_nfc_rejected_when_the_tag_has_no_enabled_nfc(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A device whose NFC is present but not enabled cannot be written to."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(
+            hass, _device_id(hass, mock_config_entry), content="http://a.test/"
+        )
+
+    assert err.value.translation_key == "no_nfc"
+    mock_nfc_write.write_nfc_url.assert_not_awaited()
+
+
+async def test_write_nfc_rejected_when_the_tag_has_no_nfc_at_all(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """The default device config has no NFC hardware."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(
+            hass, _device_id(hass, mock_config_entry), content="http://a.test/"
+        )
+
+    assert err.value.translation_key == "no_nfc"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_measures_the_payload_in_bytes_not_characters(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A multibyte string over the limit is rejected even though it is fewer chars."""
+    device_id = _device_id(hass, mock_config_entry)
+    # 3 bytes per character in UTF-8, so this is over NFC_MAX_PAYLOAD bytes
+    # while being only a third as many characters.
+    oversized = "中" * (NFC_MAX_PAYLOAD // 3 + 1)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(hass, device_id, content=oversized, record_type="text")
+
+    assert err.value.translation_key == "nfc_content_too_long"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_accepts_content_at_exactly_the_limit(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """The limit is inclusive."""
+    await _write_nfc(
+        hass,
+        _device_id(hass, mock_config_entry),
+        content="a" * NFC_MAX_PAYLOAD,
+        record_type="text",
+    )
+
+    mock_nfc_write.write_nfc_text.assert_awaited_once()
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+@pytest.mark.parametrize(
+    ("error", "translation_key"),
+    [
+        (NfcNotSupportedError("nope"), "nfc_not_supported"),
+        (NfcWriteError("bad"), "nfc_write_failed"),
+    ],
+)
+async def test_write_nfc_translates_library_errors(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+    error: Exception,
+    translation_key: str,
+) -> None:
+    """Library failures surface as HomeAssistantError with a translated message."""
+    mock_nfc_write.write_nfc_url.side_effect = error
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _write_nfc(
+            hass, _device_id(hass, mock_config_entry), content="http://a.test/"
+        )
+
+    assert err.value.translation_key == translation_key
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_rejects_an_unknown_record_type(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """The service schema constrains record_type."""
+    with pytest.raises(vol.Invalid):
+        await _write_nfc(
+            hass,
+            _device_id(hass, mock_config_entry),
+            content="x",
+            record_type="not-a-type",
+        )
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_mime_honours_an_explicit_mime_type(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """An explicit mime_type overrides the vcard default."""
+    await _write_nfc(
+        hass,
+        _device_id(hass, mock_config_entry),
+        content="a,b",
+        record_type="mime",
+        mime_type="text/csv",
+    )
+
+    assert mock_nfc_write.write_nfc_mime.await_args.args[0] == "text/csv"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_ha_tag_leaves_a_plain_id_alone(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """An id with nothing to escape is appended unchanged."""
+    await _write_nfc(
+        hass,
+        _device_id(hass, mock_config_entry),
+        content="abc123",
+        record_type="ha_tag",
+    )
+
+    mock_nfc_write.write_nfc_url.assert_awaited_once_with(HA_TAG_URL_PREFIX + "abc123")
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_rejects_a_mime_type_on_a_url_record(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """mime_type only means something for a mime record."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(
+            hass,
+            _device_id(hass, mock_config_entry),
+            content="http://a.test/",
+            mime_type="text/csv",
+        )
+
+    assert err.value.translation_key == "mime_type_not_applicable"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+@pytest.mark.parametrize("record_type", ["text", "ha_tag"])
+async def test_write_nfc_rejects_empty_content(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+    record_type: str,
+) -> None:
+    """There is nothing to write, for a plain record or a tag id."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(
+            hass,
+            _device_id(hass, mock_config_entry),
+            content="",
+            record_type=record_type,
+        )
+
+    assert err.value.translation_key == "nfc_content_empty"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config()])
+async def test_write_nfc_counts_the_mime_header_against_the_limit(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """A body that fits alone can still overflow once the mime type is prepended."""
+    mime_type = "application/vnd.test"
+    body = "a" * (NFC_MAX_PAYLOAD - len(mime_type) + 1)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _write_nfc(
+            hass,
+            _device_id(hass, mock_config_entry),
+            content=body,
+            record_type="mime",
+            mime_type=mime_type,
+        )
+
+    assert err.value.translation_key == "nfc_content_too_long"
+
+
+@pytest.mark.parametrize("device_config", [make_nfc_device_config(sleepy=True)])
+async def test_write_nfc_rejected_while_the_device_sleeps(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nfc_write: MagicMock,
+) -> None:
+    """NFC needs a live connection, so it cannot be queued for the next wake.
+
+    Unlike an image, there is nothing useful to do with a deferred NFC write.
+    """
+    with pytest.raises(HomeAssistantError) as err:
+        await _write_nfc(
+            hass, _device_id(hass, mock_config_entry), content="http://a.test/"
+        )
+
+    assert err.value.translation_key == "device_sleeping"
