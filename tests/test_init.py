@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from opendisplay import (
@@ -16,9 +17,21 @@ from opendisplay import (
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.opendisplay.const import CONF_ENCRYPTION_KEY, DOMAIN
+from custom_components.opendisplay import BASE_PLATFORMS, FLEX_PLATFORMS, _get_platforms
+from custom_components.opendisplay.const import (
+    CONF_CACHED_STATE,
+    CONF_ENCRYPTION_KEY,
+    DOMAIN,
+)
 
-from . import ENCRYPTION_KEY, LANDING_URL
+from . import (
+    DEVICE_CONFIG,
+    ENCRYPTION_KEY,
+    LANDING_URL,
+    make_cached_state,
+    make_sleepy_device_config,
+    make_touch_device_config,
+)
 
 
 async def test_setup_and_unload(
@@ -209,3 +222,126 @@ async def test_setup_invalid_encryption_key_format(
     await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
+
+
+# --- deep-sleep setup paths ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config_entry_data",
+    [{CONF_CACHED_STATE: make_cached_state(make_sleepy_device_config())}],
+)
+@pytest.mark.parametrize("device_config", [make_sleepy_device_config()])
+async def test_setup_from_cache_when_a_sleepy_device_is_dark(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_opendisplay_device_class: MagicMock,
+) -> None:
+    """A sleeping tag sets up from cached state instead of failing.
+
+    Without this a deep-sleeping device would be unavailable after every
+    Home Assistant restart until it happened to wake.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.opendisplay.async_ble_device_from_address",
+        return_value=None,
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    # Set up without ever opening a connection.
+    mock_opendisplay_device_class.assert_not_called()
+    # And schedules a re-interrogation for the next time the tag is awake.
+    assert mock_config_entry.runtime_data.config_resync_pending is True
+
+
+@pytest.mark.parametrize("device_config", [make_sleepy_device_config()])
+async def test_no_cache_still_fails_when_the_device_is_dark(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A sleepy device with nothing cached has nothing to set up from."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.opendisplay.async_ble_device_from_address",
+        return_value=None,
+    ):
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+@pytest.mark.parametrize(
+    "config_entry_data", [{CONF_CACHED_STATE: make_cached_state()}]
+)
+async def test_cache_is_not_used_for_a_non_sleepy_device(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A USB tag that is unreachable is genuinely broken, so do not paper over it.
+
+    The cache exists for devices that are expected to be dark, not as a general
+    fallback for a connect failure.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.opendisplay.async_ble_device_from_address",
+        return_value=None,
+    ):
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_setup_deadline_is_treated_as_a_connect_failure(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_opendisplay_device: MagicMock,
+) -> None:
+    """A wedged BLE link must not stall setup forever."""
+    mock_opendisplay_device.read_firmware_version.side_effect = TimeoutError
+    mock_config_entry.add_to_hass(hass)
+
+    assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+# --- platform selection ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("is_flex", "device_config", "expected"),
+    [
+        (True, DEVICE_CONFIG, set(FLEX_PLATFORMS)),
+        (True, make_touch_device_config(), set(FLEX_PLATFORMS)),
+        (False, DEVICE_CONFIG, set(BASE_PLATFORMS)),
+        (False, make_touch_device_config(), set(BASE_PLATFORMS)),
+    ],
+    ids=["flex", "flex-with-touch", "base", "base-with-touch"],
+)
+async def test_platform_selection(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    expected: set[Platform],
+) -> None:
+    """The platform set depends only on the device class, not on touch hardware.
+
+    Touch events are a Flex feature: EVENT comes from FLEX_PLATFORMS, so a base
+    model does not get it even when the device config reports a touch
+    controller.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert set(_get_platforms(mock_config_entry.runtime_data)) == expected

@@ -379,10 +379,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenDisplayConfigEntry) 
 
 def _get_platforms(runtime_data: OpenDisplayRuntimeData) -> list[Platform]:
     """Return the platforms to set up for this device."""
-    platforms = list(FLEX_PLATFORMS if runtime_data.is_flex else BASE_PLATFORMS)
-    if not runtime_data.is_flex and runtime_data.device_config.touch_controllers:
-        platforms.append(Platform.EVENT)
-    return platforms
+    return list(FLEX_PLATFORMS if runtime_data.is_flex else BASE_PLATFORMS)
 
 
 async def _async_reload_after_reboot(

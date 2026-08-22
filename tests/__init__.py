@@ -1,9 +1,12 @@
 """Tests for the OpenDisplay integration."""
 
+from dataclasses import replace
+from ipaddress import ip_address
 from time import time
 
 from bleak.backends.scanner import AdvertisementData
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 from opendisplay import (
     BinaryInputs,
     BoardManufacturer,
@@ -17,8 +20,9 @@ from opendisplay import (
     SystemConfig,
     WifiConfig,
 )
-from opendisplay.models.config import SensorData
-from opendisplay.models.enums import SensorType
+from opendisplay.models.config import SensorData, TouchController
+from opendisplay.models.config_json import config_to_json
+from opendisplay.models.enums import PowerMode, SensorType
 
 from tests.bluetooth import generate_ble_device
 
@@ -240,6 +244,81 @@ def make_sht40_service_info(
     dynamic = bytearray(11)
     dynamic[start_byte : start_byte + 3] = block
     return make_v1_service_info(dynamic_data=bytes(dynamic))
+
+
+def make_sleepy_device_config() -> GlobalConfig:
+    """Return a GlobalConfig for a battery tag that deep-sleeps between wakes."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=replace(
+            DEVICE_CONFIG.power,
+            power_mode=PowerMode.BATTERY,
+            deep_sleep_time_seconds=300,
+            sleep_timeout_ms=10_000,
+        ),
+        displays=DEVICE_CONFIG.displays,
+    )
+
+
+def make_cached_state(config: GlobalConfig | None = None) -> dict:
+    """Return the CONF_CACHED_STATE payload a previous interrogation would store."""
+    return {
+        "config": config_to_json(config if config is not None else DEVICE_CONFIG),
+        "firmware": FIRMWARE_VERSION,
+        "is_flex": True,
+        "landing_url": LANDING_URL,
+    }
+
+
+TOUCH_START_BYTE = 0
+
+
+def make_touch_device_config(
+    touch_data_start_byte: int = TOUCH_START_BYTE,
+) -> GlobalConfig:
+    """Return a GlobalConfig carrying one touch controller."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
+        touch_controllers=[
+            TouchController(
+                instance_number=0,
+                touch_ic_type=0,
+                bus_id=0,
+                i2c_addr_7bit=0x15,
+                int_pin=0xFF,
+                rst_pin=0xFF,
+                display_instance=0,
+                flags=0,
+                poll_interval_ms=100,
+                touch_data_start_byte=touch_data_start_byte,
+                reserved=b"\x00" * 4,
+            )
+        ],
+    )
+
+
+def make_zeroconf_info(
+    host: str = "192.168.1.50",
+    port: int | None = 1234,
+    properties: dict[str, str] | None = None,
+) -> ZeroconfServiceInfo:
+    """Return an mDNS record for an OpenDisplay tag."""
+    return ZeroconfServiceInfo(
+        ip_address=ip_address(host),
+        ip_addresses=[ip_address(host)],
+        port=port,
+        hostname="opendisplay-1234.local.",
+        type="_opendisplay._tcp.local.",
+        name="OpenDisplay 1234._opendisplay._tcp.local.",
+        properties={"mac": TEST_ADDRESS} if properties is None else properties,
+    )
+
+
+ZEROCONF_INFO = make_zeroconf_info()
 
 
 def make_wifi_device_config() -> GlobalConfig:
