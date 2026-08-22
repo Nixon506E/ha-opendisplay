@@ -1,19 +1,22 @@
-"""Unit tests for the WiFi/BLE transport resolver.
+"""Test the WiFi/BLE transport resolver.
 
-No Home Assistant test harness: the resolver's connection touchpoints
-(``async_ble_device_from_address`` and ``OpenDisplayDevice``) are patched in the
-transport module namespace, and the config entry is a plain ``MagicMock`` with a
-``SimpleNamespace`` runtime — matching the other test modules' style.
+The resolver's connection touchpoints (async_ble_device_from_address and
+OpenDisplayDevice) are patched in the transport module namespace. Everything
+else runs against a really-set-up config entry, so the runtime_data fields the
+resolver reads and writes are the real dataclass rather than a stand-in.
 """
 
+from collections.abc import Awaitable, Callable
 import time
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
 from opendisplay import OpenDisplayConnectionError, OpenDisplayTimeoutError
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.opendisplay import transport as transport_mod
 from custom_components.opendisplay.const import (
     CONF_HOST,
     CONF_PORT,
@@ -29,124 +32,126 @@ from custom_components.opendisplay.transport import (
     resolve_transport,
 )
 
-ADDRESS = "AA:BB:CC:DD:EE:FF"
+from . import _async_ctx, ble_unreachable, connects_via
+
+WIFI_DATA = {CONF_HOST: "1.2.3.4", CONF_PORT: 2446, CONF_TLS: False}
 
 
-def _entry(data=None, mdns_last_seen=None, delivery=None):
-    """Build a fake config entry with a mutable SimpleNamespace runtime."""
-    runtime = SimpleNamespace(
-        mdns_last_seen=mdns_last_seen,
-        delivery=delivery,
-        last_transport=None,
-    )
-    entry = MagicMock()
-    entry.unique_id = ADDRESS
-    entry.data = data if data is not None else {}
-    entry.runtime_data = runtime
-    return entry
+@pytest.fixture
+def platforms() -> list[Platform]:
+    """No platforms; these tests drive the resolver directly."""
+    return []
 
 
-def _device_ctx(device):
-    """Async context manager yielding ``device`` (mirrors OpenDisplayDevice())."""
+@pytest.fixture
+async def entry(
+    mock_config_entry: MockConfigEntry,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> MockConfigEntry:
+    """Return a loaded config entry, whose runtime_data the resolver uses."""
+    await setup_entry()
+    return mock_config_entry
 
-    class _Ctx:
-        async def __aenter__(self):
-            return device
 
-        async def __aexit__(self, *exc):
-            return False
-
-    return _Ctx()
+def _seen_now(entry: MockConfigEntry) -> None:
+    """Mark the tag as just announced over mDNS."""
+    entry.runtime_data.mdns_last_seen = time.monotonic()
 
 
 # -- resolve_transport ------------------------------------------------------
 
 
-def test_resolve_no_host_is_ble():
+async def test_resolve_no_host_is_ble(entry: MockConfigEntry) -> None:
     """An entry with no CONF_HOST (every pre-WiFi entry) resolves to BLE."""
-    resolved = resolve_transport(_entry(data={}))
+    resolved = resolve_transport(entry)
+
     assert resolved.use_wifi is False
     assert resolved.host is None
 
 
-def test_resolve_host_fresh_mdns_prefers_wifi():
-    """Host present + a recent mDNS sighting -> WiFi, carrying host/port/tls."""
-    entry = _entry(
-        data={CONF_HOST: "1.2.3.4", CONF_PORT: 2447, CONF_TLS: True},
-        mdns_last_seen=time.monotonic(),
-    )
+@pytest.mark.parametrize(
+    "config_entry_data", [{CONF_HOST: "1.2.3.4", CONF_PORT: 2447, CONF_TLS: True}]
+)
+async def test_resolve_host_fresh_mdns_prefers_wifi(entry: MockConfigEntry) -> None:
+    """Host present plus a recent mDNS sighting: WiFi, carrying host/port/tls."""
+    _seen_now(entry)
+
     resolved = resolve_transport(entry)
+
     assert resolved.use_wifi is True
     assert resolved.host == "1.2.3.4"
     assert resolved.port == 2447
     assert resolved.tls is True
 
 
-def test_resolve_host_stale_mdns_falls_back_to_ble():
-    """A host known but not seen via mDNS within the window -> BLE."""
-    entry = _entry(
-        data={CONF_HOST: "1.2.3.4"},
-        mdns_last_seen=time.monotonic() - MDNS_FRESHNESS_WINDOW_S - 60,
-    )
+@pytest.mark.parametrize("config_entry_data", [{CONF_HOST: "1.2.3.4"}])
+async def test_resolve_host_stale_mdns_falls_back_to_ble(
+    entry: MockConfigEntry,
+) -> None:
+    """A host known but not announced within the freshness window: BLE."""
+    entry.runtime_data.mdns_last_seen = time.monotonic() - MDNS_FRESHNESS_WINDOW_S - 60
+
     resolved = resolve_transport(entry)
+
     assert resolved.use_wifi is False
-    # host is still carried (a caller may log it) but WiFi is not chosen.
+    # The host is still carried (a caller may log it) but WiFi is not chosen.
     assert resolved.host == "1.2.3.4"
     assert resolved.port == DEFAULT_LAN_PORT
 
 
-def test_resolve_host_never_seen_is_ble():
-    """A host with no mDNS sighting yet -> BLE (no premature WiFi)."""
-    entry = _entry(data={CONF_HOST: "1.2.3.4"}, mdns_last_seen=None)
+@pytest.mark.parametrize("config_entry_data", [{CONF_HOST: "1.2.3.4"}])
+async def test_resolve_host_never_seen_is_ble(entry: MockConfigEntry) -> None:
+    """A host with no mDNS sighting yet: BLE, no premature WiFi."""
+    assert entry.runtime_data.mdns_last_seen is None
+
     assert resolve_transport(entry).use_wifi is False
 
 
 # -- note_mdns_seen ---------------------------------------------------------
 
 
-def test_note_mdns_seen_records_timestamp_and_wakes_delivery():
+@pytest.mark.parametrize("config_entry_data", [{CONF_HOST: "1.2.3.4"}])
+async def test_note_mdns_seen_records_timestamp_and_wakes_delivery(
+    entry: MockConfigEntry,
+) -> None:
     """A sighting stamps the freshness timestamp and triggers a wake."""
-    delivery = MagicMock()
-    entry = _entry(data={CONF_HOST: "1.2.3.4"}, delivery=delivery)
+    entry.runtime_data.delivery = MagicMock()
     assert entry.runtime_data.mdns_last_seen is None
 
     note_mdns_seen(entry)
 
     assert entry.runtime_data.mdns_last_seen is not None
-    delivery.notify_device_seen.assert_called_once_with("mdns")
+    entry.runtime_data.delivery.notify_device_seen.assert_called_once_with("mdns")
 
 
-def test_note_mdns_seen_without_runtime_is_noop():
+async def test_note_mdns_seen_without_runtime_is_noop() -> None:
     """An unloaded entry (no runtime_data) is tolerated silently."""
-    entry = MagicMock()
-    entry.runtime_data = None
-    note_mdns_seen(entry)  # must not raise
+    unloaded = MagicMock()
+    unloaded.runtime_data = None
+
+    note_mdns_seen(unloaded)  # must not raise
 
 
 # -- async_run_with_fallback ------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_wifi_preferred_when_fresh():
+@pytest.mark.parametrize("config_entry_data", [WIFI_DATA])
+async def test_wifi_preferred_when_fresh(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
     """A fresh mDNS host connects over WiFi; BLE is never touched."""
-    entry = _entry(
-        data={CONF_HOST: "1.2.3.4", CONF_PORT: 2446, CONF_TLS: False},
-        mdns_last_seen=time.monotonic(),
-    )
+    _seen_now(entry)
     device = MagicMock()
     action = AsyncMock()
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
     def _factory(**kwargs):
         calls.append(kwargs)
-        return _device_ctx(device)
+        return _async_ctx(device)
 
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-        patch.object(transport_mod, "async_ble_device_from_address") as ble,
-    ):
+    with connects_via(_factory):
         result = await async_run_with_fallback(
-            MagicMock(),
+            hass,
             entry,
             action,
             base_kwargs={"config": None},
@@ -155,34 +160,42 @@ async def test_wifi_preferred_when_fresh():
 
     assert result == TRANSPORT_WIFI
     action.assert_awaited_once_with(device)
-    assert "host" in calls[0] and "mac_address" not in calls[0]
-    ble.assert_not_called()
+    assert "host" in calls[0]
+    assert "mac_address" not in calls[0]
+    assert len(calls) == 1  # BLE was never attempted
     assert entry.runtime_data.last_transport == TRANSPORT_WIFI
 
 
-@pytest.mark.asyncio
-async def test_wifi_failure_falls_back_to_ble_same_delivery():
-    """A WiFi connection failure retries the same action over BLE."""
-    entry = _entry(
-        data={CONF_HOST: "1.2.3.4", CONF_PORT: 2446, CONF_TLS: False},
-        mdns_last_seen=time.monotonic(),
-    )
+@pytest.mark.parametrize("config_entry_data", [WIFI_DATA])
+@pytest.mark.parametrize(
+    "wifi_error",
+    [
+        OpenDisplayConnectionError("unreachable"),
+        OSError("TLS handshake failed"),
+        OpenDisplayTimeoutError("read timeout"),
+    ],
+    ids=["connection-refused", "tls-oserror", "timeout"],
+)
+async def test_wifi_failure_falls_back_to_ble(
+    hass: HomeAssistant, entry: MockConfigEntry, wifi_error: Exception
+) -> None:
+    """Any WiFi connection failure retries the same action over BLE.
+
+    A raw OSError matters as much as the library's own errors: a TLS handshake
+    failure surfaces as a socket error, not an OpenDisplayError.
+    """
+    _seen_now(entry)
     device = MagicMock()
     action = AsyncMock()
 
     def _factory(**kwargs):
         if "host" in kwargs:  # the WiFi attempt
-            raise OpenDisplayConnectionError("unreachable")
-        return _device_ctx(device)  # the BLE fallback
+            raise wifi_error
+        return _async_ctx(device)  # the BLE fallback
 
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=MagicMock()
-        ),
-    ):
+    with connects_via(_factory):
         result = await async_run_with_fallback(
-            MagicMock(),
+            hass,
             entry,
             action,
             base_kwargs={"config": None},
@@ -190,112 +203,51 @@ async def test_wifi_failure_falls_back_to_ble_same_delivery():
         )
 
     assert result == TRANSPORT_BLE
-    # The same action ran once — over BLE, after the WiFi attempt raised.
+    # The same action ran exactly once, over BLE, after the WiFi attempt raised.
     action.assert_awaited_once_with(device)
     assert entry.runtime_data.last_transport == TRANSPORT_BLE
 
 
-@pytest.mark.asyncio
-async def test_wifi_tls_oserror_falls_back_to_ble():
-    """A raw socket/TLS error (OSError) also triggers the BLE fallback."""
-    entry = _entry(
-        data={CONF_HOST: "1.2.3.4", CONF_TLS: True},
-        mdns_last_seen=time.monotonic(),
-    )
+@pytest.mark.parametrize("config_entry_data", [{CONF_HOST: "1.2.3.4"}])
+async def test_stale_host_uses_ble_directly(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """With no fresh mDNS there is no WiFi attempt at all."""
     device = MagicMock()
     action = AsyncMock()
-
-    def _factory(**kwargs):
-        if "host" in kwargs:
-            raise OSError("TLS handshake failed")
-        return _device_ctx(device)
-
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=MagicMock()
-        ),
-    ):
-        result = await async_run_with_fallback(
-            MagicMock(), entry, action, base_kwargs={}, ble_unavailable=RuntimeError
-        )
-
-    assert result == TRANSPORT_BLE
-
-
-@pytest.mark.asyncio
-async def test_stale_host_uses_ble_directly():
-    """No fresh mDNS -> BLE with no WiFi attempt at all."""
-    entry = _entry(data={CONF_HOST: "1.2.3.4"}, mdns_last_seen=None)
-    device = MagicMock()
-    action = AsyncMock()
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
     def _factory(**kwargs):
         calls.append(kwargs)
-        return _device_ctx(device)
+        return _async_ctx(device)
 
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=MagicMock()
-        ),
-    ):
+    with connects_via(_factory):
         result = await async_run_with_fallback(
-            MagicMock(), entry, action, base_kwargs={}, ble_unavailable=RuntimeError
+            hass, entry, action, base_kwargs={}, ble_unavailable=RuntimeError
         )
 
     assert result == TRANSPORT_BLE
-    assert len(calls) == 1 and "mac_address" in calls[0] and "host" not in calls[0]
+    assert len(calls) == 1
+    assert "mac_address" in calls[0]
+    assert "host" not in calls[0]
 
 
-@pytest.mark.asyncio
-async def test_ble_unavailable_raises_supplied_exception():
-    """When BLE is selected but no connectable device exists, the caller's
-    exception factory decides the outcome (e.g. _DeviceUnavailable).
+async def test_ble_unavailable_raises_the_supplied_exception(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """The caller's exception factory decides what an unreachable tag means.
+
+    Callers use this to raise their own _DeviceUnavailable rather than leaking
+    a transport-level error.
     """
-    entry = _entry(data={}, mdns_last_seen=None)  # no host -> BLE
     action = AsyncMock()
 
     class _Sentinel(Exception):
         pass
 
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=None),
-        pytest.raises(_Sentinel),
-    ):
+    with ble_unreachable(), pytest.raises(_Sentinel):
         await async_run_with_fallback(
-            MagicMock(),
-            entry,
-            action,
-            base_kwargs={},
-            ble_unavailable=_Sentinel,
+            hass, entry, action, base_kwargs={}, ble_unavailable=_Sentinel
         )
 
     action.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_wifi_timeout_falls_back_to_ble():
-    """A neutral OpenDisplayTimeoutError from WiFi also falls back to BLE."""
-    entry = _entry(data={CONF_HOST: "1.2.3.4"}, mdns_last_seen=time.monotonic())
-    device = MagicMock()
-    action = AsyncMock()
-
-    def _factory(**kwargs):
-        if "host" in kwargs:
-            raise OpenDisplayTimeoutError("read timeout")
-        return _device_ctx(device)
-
-    with (
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=MagicMock()
-        ),
-    ):
-        result = await async_run_with_fallback(
-            MagicMock(), entry, action, base_kwargs={}, ble_unavailable=RuntimeError
-        )
-
-    assert result == TRANSPORT_BLE

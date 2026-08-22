@@ -1,18 +1,20 @@
-"""Unit tests for DeliveryManager with mocked hass/coordinator/device.
+"""Test DeliveryManager: the queue that holds work for a sleeping tag.
 
-These avoid the full Home Assistant test harness: the manager's HA touchpoints
-(``async_call_later``, ``async_dispatcher_send``) are patched in the delivery
-module namespace, while the connection touchpoints (``async_ble_device_from_address``
-and ``OpenDisplayDevice``) now live in — and are patched in — the transport module
-namespace, since the resolver owns the connect/fallback flow.
+Only the connection touchpoints are patched, in the transport module namespace
+that owns the connect/fallback flow. The config entry, its runtime_data, the
+event bus and the expiry timers are all real, so a deadline is fired by moving
+Home Assistant's clock rather than by hand-calling a captured callback.
 """
 
 import asyncio
+from datetime import timedelta
 import logging
-from contextlib import contextmanager
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
@@ -20,11 +22,14 @@ from opendisplay import (
     RefreshMode,
 )
 import pytest
-
-from homeassistant.exceptions import HomeAssistantError
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_capture_events,
+    async_fire_time_changed,
+)
 
 from custom_components.opendisplay import delivery as delivery_mod
-from custom_components.opendisplay import transport as transport_mod
+from custom_components.opendisplay.binary_sensor import OpenDisplayUpdatePendingSensor
 from custom_components.opendisplay.ble_lock import async_get_ble_lock, ble_connection
 from custom_components.opendisplay.const import (
     CONF_BLOCKS_PER_ACK,
@@ -34,651 +39,520 @@ from custom_components.opendisplay.const import (
     DEFAULT_MAX_QUEUE_SIZE,
     EVENT_CONTENT_DELIVERED,
     EVENT_CONTENT_EXPIRED,
-    SIGNAL_PENDING_STATE,
 )
-from custom_components.opendisplay.binary_sensor import OpenDisplayUpdatePendingSensor
 from custom_components.opendisplay.delivery import DeliveryManager
-from custom_components.opendisplay.sleep import SleepProfile
 
-ADDRESS = "AA:BB:CC:DD:EE:FF"
+from . import (
+    TEST_ADDRESS as ADDRESS,
+    connection_fails,
+    connects_to,
+    connects_via,
+    make_sleepy_device_config,
+    make_v1_service_info,
+)
+from .bluetooth import inject_bluetooth_service_info
+
+# Every test here is about a tag that sleeps: a device that is always awake
+# delivers immediately and never queues anything.
+pytestmark = pytest.mark.parametrize(
+    "device_config", [make_sleepy_device_config()], ids=[""]
+)
 
 
-def _profile(**overrides):
-    params = {
-        "sleep_mode": "on",
-        "power_mode": 1,
-        "sleep_timeout_ms": 0,
-        "deep_sleep_time_seconds": 300,
-        "missed_cycles": 3,
-        "queue_timeout_hours": 24,
+@pytest.fixture
+def platforms() -> list[Platform]:
+    """No platforms; these tests drive the manager directly."""
+    return []
+
+
+@pytest.fixture
+async def entry(mock_config_entry: MockConfigEntry, setup_entry) -> MockConfigEntry:
+    """Return a loaded config entry for a deep-sleeping device."""
+    await setup_entry()
+    return mock_config_entry
+
+
+@pytest.fixture
+def manager(hass: HomeAssistant, entry: MockConfigEntry) -> DeliveryManager:
+    """Return a manager bound to the real entry, as async_setup_entry builds one."""
+    return DeliveryManager(hass, entry)
+
+
+def _submit(mgr: DeliveryManager, device_id: str = "dev1", **overrides):
+    """Queue an image the way the upload service does."""
+    kwargs = {
+        "prepared": (b"img", None, object()),
+        "refresh_mode": RefreshMode.FULL,
+        "partial_state": MagicMock(),
+        "use_measured_palettes": False,
+        "preview_jpeg": b"jpeg",
+        "device_id": device_id,
     }
-    params.update(overrides)
-    return SleepProfile.create(**params)
+    kwargs.update(overrides)
+    return mgr.submit_upload(**kwargs)
 
 
-def _make_env(profile=None, entry_data=None, last_seen=None, options=None):
-    """Return (hass, entry, coordinator) with a fake runtime for the manager."""
-    profile = profile or _profile()
-    coordinator = MagicMock()
-    coordinator.data = SimpleNamespace(last_seen=last_seen)
-    coordinator.async_subscribe_device_seen = MagicMock(return_value=MagicMock())
-    runtime = SimpleNamespace(
-        coordinator=coordinator,
-        sleep_profile=profile,
-        device_config=MagicMock(),
-        config_resync_pending=False,
-        firmware=None,
-        is_flex=False,
-    )
-    entry = MagicMock()
-    entry.unique_id = ADDRESS
-    entry.runtime_data = runtime
-    entry.data = entry_data if entry_data is not None else {}
-    entry.options = options if options is not None else {}
-    entry.async_start_reauth = MagicMock()
-    hass = MagicMock()
-    return hass, entry, coordinator
+def _reauth_flows(hass: HomeAssistant) -> list:
+    """Return the reauth flows currently in progress for this integration."""
+    return [
+        flow
+        for flow in hass.config_entries.flow.async_progress_by_handler("opendisplay")
+        if flow["context"]["source"] == "reauth"
+    ]
 
 
-def _submit(mgr, device_id="dev1"):
-    return mgr.submit_upload(
-        prepared=(b"img", None, object()),
-        refresh_mode=RefreshMode.FULL,
-        partial_state=MagicMock(),
-        use_measured_palettes=False,
-        preview_jpeg=b"jpeg",
-        device_id=device_id,
-    )
-
-
-def _fake_device_ctx(device):
-    """Return a factory producing an async-context-manager wrapping device."""
-
-    class _Ctx:
-        async def __aenter__(self):
-            return device
-
-        async def __aexit__(self, *exc):
-            return False
-
-    return lambda **kwargs: _Ctx()
-
-
-def _raising_device_ctx(exc):
-    class _Ctx:
-        async def __aenter__(self):
-            raise exc
-
-        async def __aexit__(self, *exc_info):
-            return False
-
-    return lambda **kwargs: _Ctx()
-
-
-def test_submit_upload_queues_and_reports():
-    hass, entry, _ = _make_env()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()) as later,
-        patch.object(delivery_mod, "async_dispatcher_send") as dispatch,
-    ):
-        mgr = DeliveryManager(hass, entry)
-        receipt = _submit(mgr)
-
-    assert receipt.status == "queued"
-    assert receipt.expires_at is not None
-    snap = mgr.state
-    assert snap.pending is True
-    assert snap.queued_at is not None
-    assert snap.attempts == 0
-    later.assert_called_once()  # deadline armed
-    # Both the image preview and the pending-state signals were dispatched.
-    assert dispatch.call_count == 2
-
-
-def test_latest_wins_cancels_previous_deadline():
-    hass, entry, _ = _make_env()
-    cancels = [MagicMock(), MagicMock()]
-    with (
-        patch.object(delivery_mod, "async_call_later", side_effect=cancels),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr, device_id="a")
-        _submit(mgr, device_id="b")
-
-    cancels[0].assert_called_once()  # the first deadline timer was cancelled
-    assert mgr.state.pending is True
-
-
-def test_expiry_clears_slot_and_fires_event():
-    hass, entry, _ = _make_env()
-    captured = {}
-
-    def _fake_later(_hass, _delay, callback):
-        captured["cb"] = callback
-        return MagicMock()
-
-    with (
-        patch.object(delivery_mod, "async_call_later", side_effect=_fake_later),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr, device_id="dev1")
-        captured["cb"](None)  # simulate the deadline firing
-
-    assert mgr.state.pending is False
-    assert mgr.state.last_error == "expired"
-    hass.bus.async_fire.assert_called_once()
-    event, payload = hass.bus.async_fire.call_args[0]
-    assert event == EVENT_CONTENT_EXPIRED
-    assert payload["device_id"] == "dev1"
-    assert "queued_at" in payload
-
-
-def test_request_config_resync_sets_flags():
-    hass, entry, _ = _make_env()
-    mgr = DeliveryManager(hass, entry)
-    assert mgr._has_pending_work() is False
-    mgr.request_config_resync()
-    assert entry.runtime_data.config_resync_pending is True
-    assert mgr._has_pending_work() is True
-
-
-def test_notify_device_seen_starts_one_delivery():
-    hass, entry, _ = _make_env()
-
-    def _capture(_hass, coro, _name):
-        coro.close()  # don't actually run the drain
-        return MagicMock()
-
-    entry.async_create_background_task = MagicMock(side_effect=_capture)
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.notify_device_seen()  # nothing queued -> no delivery
-        entry.async_create_background_task.assert_not_called()
-
-        _submit(mgr)
-        mgr.notify_device_seen()  # work queued -> one delivery
-        entry.async_create_background_task.assert_called_once()
-
-        mgr.notify_device_seen()  # already delivering -> still one
-        entry.async_create_background_task.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_drain_delivers_upload():
-    hass, entry, _ = _make_env()
+def _uploading_device() -> MagicMock:
+    """Return a device mock that accepts a prepared image."""
     device = MagicMock()
     device.upload_prepared_image = AsyncMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr, device_id="dev1")
-        await mgr._deliver()
+    return device
+
+
+# --- queueing --------------------------------------------------------------
+
+
+async def test_submit_upload_queues_and_reports(manager: DeliveryManager) -> None:
+    """A submitted frame is held with a queued-at stamp and an expiry."""
+    receipt = _submit(manager)
+
+    assert receipt.status == "queued"
+    assert manager.state.pending is True
+    assert manager.state.queued_at is not None
+    assert manager.state.expires_at is not None
+
+
+async def test_latest_wins_replaces_the_queued_frame(manager: DeliveryManager) -> None:
+    """A newer frame supersedes an older one instead of queueing behind it."""
+    _submit(manager, device_id="first")
+    first_queued_at = manager.state.queued_at
+
+    _submit(manager, device_id="second")
+
+    assert manager._pending_upload.device_id == "second"
+    assert manager.state.queued_at >= first_queued_at
+
+
+async def test_expiry_clears_the_slot_and_fires_an_event(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """Content that is never delivered is dropped once its deadline passes.
+
+    The deadline is a real timer, so this advances Home Assistant's clock past
+    the queue timeout rather than invoking the callback directly.
+    """
+    expired = async_capture_events(hass, EVENT_CONTENT_EXPIRED)
+    _submit(manager, device_id="dev1")
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=25))
+    await hass.async_block_till_done()
+
+    assert manager.state.pending is False
+    assert manager.state.last_error == "expired"
+    assert len(expired) == 1
+    assert expired[0].data["device_id"] == "dev1"
+    assert "queued_at" in expired[0].data
+
+
+async def test_request_config_resync_sets_flags(
+    entry: MockConfigEntry, manager: DeliveryManager
+) -> None:
+    """A resync request counts as pending work even with no image queued."""
+    assert manager._has_pending_work() is False
+
+    manager.request_config_resync()
+
+    assert entry.runtime_data.config_resync_pending is True
+    assert manager._has_pending_work() is True
+
+
+async def test_notify_device_seen_starts_one_delivery(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """A wake starts a drain only when there is work, and only one at a time."""
+    device = _uploading_device()
+    with connects_to(device):
+        manager.notify_device_seen()
+        await hass.async_block_till_done()
+        device.upload_prepared_image.assert_not_awaited()
+
+        _submit(manager)
+        manager.notify_device_seen()
+        manager.notify_device_seen()  # already delivering
+        await hass.async_block_till_done()
 
     device.upload_prepared_image.assert_awaited_once()
-    assert mgr.state.pending is False
-    fired = [call.args[0] for call in hass.bus.async_fire.call_args_list]
-    assert EVENT_CONTENT_DELIVERED in fired
 
 
-@pytest.mark.asyncio
-async def test_drain_ble_failure_keeps_slot_and_counts_attempt():
-    hass, entry, _ = _make_env()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod,
-            "OpenDisplayDevice",
-            side_effect=_raising_device_ctx(BLEConnectionError("boom")),
-        ),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
-
-    assert mgr.state.pending is True
-    assert mgr.state.attempts == 1
+# --- draining --------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_drain_deadline_timeout_raises_and_counts_attempt():
-    """Exceeding DELIVERY_DEADLINE_S raises loudly but keeps the slot queued."""
-    hass, entry, _ = _make_env()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod,
-            "OpenDisplayDevice",
-            side_effect=_raising_device_ctx(TimeoutError()),
-        ),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
+async def test_drain_delivers_the_queued_upload(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """A successful drain uploads the frame and announces it."""
+    delivered = async_capture_events(hass, EVENT_CONTENT_DELIVERED)
+    device = _uploading_device()
+    with connects_to(device):
+        _submit(manager, device_id="dev1")
+        await manager._deliver()
+    await hass.async_block_till_done()
+
+    device.upload_prepared_image.assert_awaited_once()
+    assert manager.state.pending is False
+    assert len(delivered) == 1
+
+
+async def test_drain_ble_failure_keeps_the_slot_and_counts_an_attempt(
+    manager: DeliveryManager,
+) -> None:
+    """A failed drain leaves the content queued for the next wake."""
+    with connection_fails(BLEConnectionError("boom")):
+        _submit(manager)
+        await manager._deliver()
+
+    assert manager.state.pending is True
+    assert manager.state.attempts == 1
+
+
+async def test_drain_deadline_raises_but_keeps_the_slot(
+    manager: DeliveryManager,
+) -> None:
+    """Exceeding the delivery deadline raises loudly but does not lose content."""
+    with connection_fails(TimeoutError()):
+        _submit(manager)
         with pytest.raises(HomeAssistantError):
-            await mgr._deliver()
+            await manager._deliver()
 
-    # The slot is retained for the next wake and the failed attempt is recorded.
-    assert mgr.state.pending is True
-    assert mgr.state.attempts == 1
-    assert "deadline exceeded" in (mgr.state.last_error or "")
-    # Background-task bookkeeping is still cleaned up despite the raise.
-    assert mgr._delivering is False
-    assert mgr._delivery_task is None
+    assert manager.state.pending is True
+    assert manager.state.attempts == 1
+    assert "deadline exceeded" in (manager.state.last_error or "")
+    # Background-task bookkeeping is cleaned up despite the raise.
+    assert manager._delivering is False
+    assert manager._delivery_task is None
 
 
-@pytest.mark.asyncio
-async def test_drain_gives_up_after_max_attempts():
-    """After MAX_DELIVERY_ATTEMPTS failures the slot is dropped with an expired event."""
-    hass, entry, _ = _make_env()
-    deadline_cancel = MagicMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=deadline_cancel),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod,
-            "OpenDisplayDevice",
-            side_effect=_raising_device_ctx(BLEConnectionError("boom")),
-        ),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
+async def test_drain_gives_up_after_max_attempts(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """The slot is dropped once the retry cap is hit, rather than retrying forever."""
+    expired = async_capture_events(hass, EVENT_CONTENT_EXPIRED)
+    with connection_fails(BLEConnectionError("boom")):
+        _submit(manager)
         for attempt in range(1, delivery_mod.MAX_DELIVERY_ATTEMPTS + 1):
-            await mgr._deliver()
+            await manager._deliver()
             if attempt < delivery_mod.MAX_DELIVERY_ATTEMPTS:
-                # Still queued and retriable until the cap is reached.
-                assert mgr.state.pending is True
-                assert mgr.state.attempts == attempt
+                assert manager.state.pending is True
+                assert manager.state.attempts == attempt
+    await hass.async_block_till_done()
 
-    # On the capped attempt the slot is dropped and the expiry timer cancelled.
-    assert mgr.state.pending is False
-    assert mgr.state.last_error == "failed"
-    deadline_cancel.assert_called_once()
-
-    # A content_expired event fired once, carrying attempts == the cap.
-    expired = [
-        c.args[1]
-        for c in hass.bus.async_fire.call_args_list
-        if c.args[0] == EVENT_CONTENT_EXPIRED
-    ]
+    assert manager.state.pending is False
+    assert manager.state.last_error == "failed"
     assert len(expired) == 1
-    assert expired[0]["attempts"] == delivery_mod.MAX_DELIVERY_ATTEMPTS
+    assert expired[0].data["attempts"] == delivery_mod.MAX_DELIVERY_ATTEMPTS
 
 
-@contextmanager
-def _auth_patches(exc):
-    """Patch a drain so the connection attempt fails authentication with ``exc``."""
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_raising_device_ctx(exc)),
-    ):
-        yield
-
-
-@pytest.mark.asyncio
-async def test_drain_auth_failure_pauses_and_starts_reauth():
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
-
-    # The slot survives (a reload drops it); what stops the retry is the
-    # manager-wide pause, not a per-slot flag.
-    assert mgr._pending_upload is not None
-    assert mgr._auth_paused is True
-    assert mgr.state.auth_paused is True
-    assert mgr.state.last_error == "auth"
-    entry.async_start_reauth.assert_called_once()
-    assert mgr._has_pending_work() is False
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "exc",
+    "auth_error",
     [
         AuthenticationFailedError("wrong key"),
-        # Issue #91's real case: firmware status 0x03 (encryption not configured)
-        # surfaces as AuthenticationRequiredError, not AuthenticationFailedError.
+        # Issue #91's real case: firmware status 0x03 (encryption not
+        # configured) surfaces as AuthenticationRequiredError.
         AuthenticationRequiredError("device has no encryption configured"),
     ],
     ids=["failed", "required"],
 )
-async def test_auth_failure_stops_resync_only_retry_loop(exc):
+async def test_drain_auth_failure_pauses_and_starts_reauth(
+    hass: HomeAssistant, manager: DeliveryManager, auth_error: Exception
+) -> None:
+    """A rejected key pauses the manager rather than burning the retry budget."""
+    with connection_fails(auth_error):
+        _submit(manager)
+        await manager._deliver()
+    await hass.async_block_till_done()
+
+    # The slot survives (only a reload drops it); what stops the retry is the
+    # manager-wide pause, not a per-slot flag.
+    assert manager._pending_upload is not None
+    assert manager._auth_paused is True
+    assert manager.state.auth_paused is True
+    assert manager.state.last_error == "auth"
+    assert manager._has_pending_work() is False
+    assert _reauth_flows(hass)
+
+
+@pytest.mark.parametrize(
+    "auth_error",
+    [
+        AuthenticationFailedError("wrong key"),
+        AuthenticationRequiredError("device has no encryption configured"),
+    ],
+    ids=["failed", "required"],
+)
+async def test_auth_failure_stops_a_resync_only_retry_loop(
+    hass: HomeAssistant, manager: DeliveryManager, auth_error: Exception
+) -> None:
     """Regression for issue #91.
 
-    With only a config resync queued, the old handler paused nothing at all, so
-    ``_has_pending_work()`` stayed True and the next advertisement immediately
-    started another identical, doomed session.
+    With only a config resync queued, the pause used to be applied to the
+    upload slot alone, which was empty. _has_pending_work() stayed true and the
+    next advertisement started another identical, doomed session: roughly 20 a
+    minute, indefinitely, draining the tag's battery.
     """
-    hass, entry, _ = _make_env()
-    with _auth_patches(exc):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        assert mgr._has_pending_work() is True
-        await mgr._deliver()
+    device = _uploading_device()
+    with connection_fails(auth_error):
+        manager.request_config_resync()
+        assert manager._has_pending_work() is True
+        await manager._deliver()
 
-        # The work is still queued, but it is no longer deliverable...
-        assert mgr._pending_config_resync is True
-        assert mgr._has_pending_work() is False
+    # The work is still queued, but it is no longer deliverable.
+    assert manager._pending_config_resync is True
+    assert manager._has_pending_work() is False
 
-        # ...so the next advertisement starts no second session.
-        entry.async_create_background_task.reset_mock()
-        mgr.notify_device_seen("ble")
-        entry.async_create_background_task.assert_not_called()
-        assert mgr._delivering is False
+    # So the next advertisement starts no second session.
+    with connects_to(device):
+        manager.notify_device_seen()
+        await hass.async_block_till_done()
+    device.upload_prepared_image.assert_not_awaited()
+    assert manager._delivering is False
 
 
-@pytest.mark.asyncio
-async def test_submit_does_not_bypass_auth_pause():
-    """New content must not re-arm the storm while the pause stands.
+async def test_new_content_does_not_bypass_the_auth_pause(
+    manager: DeliveryManager,
+) -> None:
+    """Queuing new content must not re-arm the storm while the pause stands.
 
-    ``submit_upload`` is routinely automation-driven, so clearing the pause there
+    submit_upload is routinely automation-driven, so clearing the pause there
     would let a frame-changing automation restart delivery on every wake.
     """
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
+    with connection_fails(AuthenticationFailedError("bad key")):
+        manager.request_config_resync()
+        await manager._deliver()
 
-        _submit(mgr, device_id="dev2")
+        _submit(manager, device_id="dev2")
 
-    assert mgr._pending_upload is not None
-    assert mgr._has_pending_work() is False
-    # auth_paused is the authoritative signal; last_error is best-effort (an
-    # expiring slot can overwrite it with "expired").
-    assert mgr.state.auth_paused is True
-    assert mgr.state.last_error == "auth"
+    assert manager._pending_upload is not None
+    assert manager._has_pending_work() is False
+    # auth_paused is authoritative; last_error is best effort, because an
+    # expiring slot can overwrite it with "expired".
+    assert manager.state.auth_paused is True
+    assert manager.state.last_error == "auth"
 
 
-@pytest.mark.asyncio
-async def test_config_resync_request_does_not_unblock_auth():
-    """The reboot edge fires on every wake for sleepy devices.
+async def test_a_resync_request_does_not_unblock_the_auth_pause(
+    manager: DeliveryManager,
+) -> None:
+    """The reboot edge fires on roughly every wake for a sleepy device.
 
-    Clearing the pause in ``request_config_resync`` would therefore reopen the
-    exact loop this fix closes.
+    Clearing the pause in request_config_resync would therefore reopen exactly
+    the loop this guards.
     """
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
+    with connection_fails(AuthenticationFailedError("bad key")):
+        manager.request_config_resync()
+        await manager._deliver()
 
-        mgr.request_config_resync()
+        manager.request_config_resync()
 
-    assert mgr._auth_paused is True
-    assert mgr._has_pending_work() is False
+    assert manager._auth_paused is True
+    assert manager._has_pending_work() is False
 
 
-@pytest.mark.asyncio
-async def test_malformed_key_pauses_and_does_not_loop():
-    """A malformed stored key returns normally, so it needs the same pause.
+async def test_every_wake_source_shares_the_auth_gate(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """BLE, mDNS and the post-probe wake all pass through the same gate."""
+    device = _uploading_device()
+    with connection_fails(AuthenticationFailedError("bad key")):
+        manager.request_config_resync()
+        await manager._deliver()
 
-    ``_drain_once`` bails out on the ``_KEY_INVALID`` sentinel without raising,
-    which previously left the work deliverable and retried it every wake.
-    """
-    hass, entry, _ = _make_env(entry_data={CONF_ENCRYPTION_KEY: "not-32-chars"})
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
-
-        assert mgr._has_pending_work() is False
-        entry.async_create_background_task.reset_mock()
-        mgr.notify_device_seen("ble")
-        entry.async_create_background_task.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_key_invalid_sets_auth_error_and_notifies():
-    """The sentinel path must publish state, not just set the flag."""
-    hass, entry, _ = _make_env(entry_data={CONF_ENCRYPTION_KEY: "not-32-chars"})
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send") as dispatch,
-    ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
-
-    assert mgr.state.auth_paused is True
-    assert mgr.state.last_error == "auth"
-    # _resolve_key already started the flow; the pause must not start a second.
-    entry.async_start_reauth.assert_called_once()
-    assert any(
-        call.args[1] == f"{SIGNAL_PENDING_STATE}_{ADDRESS}" for call in dispatch.call_args_list
-    )
-
-
-@pytest.mark.asyncio
-async def test_all_wake_sources_share_the_same_gate():
-    """Every wake route funnels through notify_device_seen, so one gate covers all.
-
-    ``source`` is only a log label; the BLE, mDNS
-    (``transport.note_mdns_seen``) and post-probe (``services``) callers all
-    reach this same method, which is where the gate lives.
-    """
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
-
-        entry.async_create_background_task.reset_mock()
+    with connects_to(device):
         for source in ("ble", "mdns", "post-probe"):
-            mgr.notify_device_seen(source)
-        entry.async_create_background_task.assert_not_called()
+            manager.notify_device_seen(source)
+        await hass.async_block_till_done()
+
+    device.upload_prepared_image.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_submit_after_expiry_reports_auth_not_stale_expiry():
-    """auth failure -> slot expires -> new content: the error must read "auth".
+async def test_a_malformed_stored_key_pauses_without_looping(
+    hass: HomeAssistant, entry: MockConfigEntry, manager: DeliveryManager
+) -> None:
+    """A malformed key returns normally from the drain, so it needs the pause too.
 
-    ``_expire_upload`` overwrites ``last_error`` with "expired", so simply
-    declining to clear it on submit would report a stale expiry against a
-    brand-new pending upload.
+    _drain_once bails out on the _KEY_INVALID sentinel without raising, so no
+    except clause ran and the work stayed deliverable, retried on every wake.
+
+    The key is corrupted after setup on purpose: a key that is already
+    malformed fails async_setup_entry outright, so the drain-time sentinel is
+    only reachable once the entry is loaded.
     """
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
+    device = _uploading_device()
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_ENCRYPTION_KEY: "not-32-chars"}
+    )
+    manager.request_config_resync()
+    await manager._deliver()
 
-        mgr._expire_upload(mgr._pending_upload)
-        assert mgr.state.last_error == "expired"
+    assert manager.state.auth_paused is True
+    assert manager.state.last_error == "auth"
+    assert manager._has_pending_work() is False
 
-        _submit(mgr, device_id="dev2")
-
-    assert mgr.state.pending is True
-    assert mgr.state.auth_paused is True
-    assert mgr.state.last_error == "auth"
-    assert mgr._has_pending_work() is False
+    with connects_to(device):
+        manager.notify_device_seen()
+        await hass.async_block_till_done()
+    device.upload_prepared_image.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_auth_paused_surfaces_in_snapshot_and_entity():
-    """The flag must reach the reader, not just the dataclass.
+async def test_submitting_after_an_expiry_reports_auth_not_the_stale_expiry(
+    manager: DeliveryManager,
+) -> None:
+    """Auth failure, then expiry, then new content: the error must read "auth".
 
-    ``last_error`` cannot carry this on its own: a paused slot's expiry timer
-    still fires and overwrites it with "expired".
+    _expire_upload overwrites last_error with "expired", so merely declining to
+    clear it on submit would report a stale expiry against brand-new content.
     """
-    hass, entry, _ = _make_env()
-    with _auth_patches(AuthenticationFailedError("bad key")):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
+    with connection_fails(AuthenticationFailedError("bad key")):
+        _submit(manager)
+        await manager._deliver()
 
-        # Expiry lands after the pause and clobbers last_error.
-        mgr._expire_upload(mgr._pending_upload)
+        manager._expire_upload(manager._pending_upload)
+        assert manager.state.last_error == "expired"
 
-    assert mgr.state.last_error == "expired"
-    assert mgr.state.auth_paused is True
+        _submit(manager, device_id="dev2")
 
-    sensor = OpenDisplayUpdatePendingSensor(ADDRESS, mgr)
+    assert manager.state.pending is True
+    assert manager.state.auth_paused is True
+    assert manager.state.last_error == "auth"
+    assert manager._has_pending_work() is False
+
+
+async def test_auth_paused_reaches_the_entities(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """The flag has to reach a reader, not just sit on the dataclass.
+
+    last_error cannot carry this alone: a paused slot's expiry timer still
+    fires and clobbers it with "expired".
+    """
+    with connection_fails(AuthenticationFailedError("bad key")):
+        _submit(manager)
+        await manager._deliver()
+        # Expiry lands after the pause and overwrites last_error.
+        manager._expire_upload(manager._pending_upload)
+
+    assert manager.state.last_error == "expired"
+    assert manager.state.auth_paused is True
+
+    sensor = OpenDisplayUpdatePendingSensor(ADDRESS, manager)
     assert sensor.extra_state_attributes["auth_paused"] is True
     assert sensor.extra_state_attributes["last_error"] == "expired"
 
 
-@pytest.mark.asyncio
-async def test_drain_config_resync_updates_runtime_and_cache():
-    hass, entry, _ = _make_env()
-    device = MagicMock()
+async def test_drain_config_resync_updates_runtime_and_cache(
+    entry: MockConfigEntry, manager: DeliveryManager
+) -> None:
+    """A resync re-reads firmware and config, and refreshes the dark-start cache."""
+    device = _uploading_device()
     device.read_firmware_version = AsyncMock(
         return_value={"major": 1, "minor": 2, "sha": "abc"}
     )
     device.is_flex = False
     device.landing_url = MagicMock(return_value="http://landing")
     device.config = MagicMock()
+
     with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)),
-        patch("custom_components.opendisplay._write_cache") as write_cache,
+        connects_to(device),
+        patch("custom_components.opendisplay._write_cache") as cache,
     ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.request_config_resync()
-        await mgr._deliver()
+        manager.request_config_resync()
+        await manager._deliver()
 
     assert entry.runtime_data.config_resync_pending is False
-    assert mgr._pending_config_resync is False
+    assert manager._pending_config_resync is False
     assert entry.runtime_data.firmware == {"major": 1, "minor": 2, "sha": "abc"}
-    write_cache.assert_called_once()
+    cache.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_shutdown_unsubscribes_and_cancels_deadline():
-    hass, entry, coordinator = _make_env()
-    unsub = MagicMock()
-    coordinator.async_subscribe_device_seen = MagicMock(return_value=unsub)
-    deadline_cancel = MagicMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=deadline_cancel),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.async_start()
-        _submit(mgr)
-        await mgr.async_shutdown()
+async def test_shutdown_detaches_from_wakes_and_cancels_the_expiry(
+    hass: HomeAssistant, manager: DeliveryManager
+) -> None:
+    """After shutdown the manager stops reacting to the device entirely.
 
-    unsub.assert_called_once()
-    deadline_cancel.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_drain_threads_pipe_kwargs_default():
-    """No options set: library sliding-window defaults reach the constructor."""
-    hass, entry, _ = _make_env()
-    device = MagicMock()
-    device.upload_prepared_image = AsyncMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
-        ) as od,
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
-
-    device.upload_prepared_image.assert_awaited_once()
-    kwargs = od.call_args.kwargs
-    assert kwargs["blocks_per_ack"] == DEFAULT_BLOCKS_PER_ACK
-    assert kwargs["max_queue_size"] == DEFAULT_MAX_QUEUE_SIZE
-
-
-@pytest.mark.asyncio
-async def test_drain_threads_pipe_kwargs_custom():
-    """Configured entry options reach the OpenDisplayDevice constructor."""
-    hass, entry, _ = _make_env(
-        options={CONF_BLOCKS_PER_ACK: 4, CONF_MAX_QUEUE_SIZE: 1}
-    )
-    device = MagicMock()
-    device.upload_prepared_image = AsyncMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(
-            transport_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
-        ) as od,
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
-
-    device.upload_prepared_image.assert_awaited_once()
-    kwargs = od.call_args.kwargs
-    assert kwargs["blocks_per_ack"] == 4
-    assert kwargs["max_queue_size"] == 1
-
-
-@pytest.mark.asyncio
-async def test_drain_passes_state_and_refresh_mode():
-    """Wake/queued delivery pins the pipe-partial signature: the entry's
-    PartialState and the queued refresh_mode reach upload_prepared_image.
-
-    The library keeps the ``upload_prepared_image(prepared, refresh_mode=,
-    state=)`` contract for pipe-partial, so the integration needs no behavior
-    change -- this guards that the wake path keeps threading both kwargs.
+    Both halves matter on unload: an advertisement must no longer start a
+    drain, and the queue-timeout timer must not outlive the entry.
     """
-    hass, entry, _ = _make_env()
-    device = MagicMock()
-    device.upload_prepared_image = AsyncMock()
-    sentinel_state = MagicMock()
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(
-            transport_mod, "async_ble_device_from_address", return_value=MagicMock()
-        ),
-        patch.object(
-            transport_mod, "OpenDisplayDevice", side_effect=_fake_device_ctx(device)
-        ),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        mgr.submit_upload(
-            prepared=(b"img", None, object()),
-            refresh_mode=RefreshMode.PARTIAL,
-            partial_state=sentinel_state,
-            use_measured_palettes=False,
-            preview_jpeg=b"jpeg",
-            device_id="dev1",
-        )
-        await mgr._deliver()
+    expired = async_capture_events(hass, EVENT_CONTENT_EXPIRED)
+    manager.async_start()
+    _submit(manager)
 
-    device.upload_prepared_image.assert_awaited_once()
+    await manager.async_shutdown()
+
+    device = _uploading_device()
+    with connects_to(device):
+        inject_bluetooth_service_info(hass, make_v1_service_info())
+        await hass.async_block_till_done()
+    device.upload_prepared_image.assert_not_awaited()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=25))
+    await hass.async_block_till_done()
+    assert not expired
+
+
+# --- what reaches the library ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("options", "blocks_per_ack", "max_queue_size"),
+    [
+        ({}, DEFAULT_BLOCKS_PER_ACK, DEFAULT_MAX_QUEUE_SIZE),
+        ({CONF_BLOCKS_PER_ACK: 4, CONF_MAX_QUEUE_SIZE: 1}, 4, 1),
+    ],
+    ids=["defaults", "configured"],
+)
+async def test_drain_threads_the_pipe_options(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    manager: DeliveryManager,
+    options: dict,
+    blocks_per_ack: int,
+    max_queue_size: int,
+) -> None:
+    """The sliding-window options reach the OpenDisplayDevice constructor."""
+    hass.config_entries.async_update_entry(entry, options=options)
+    device = _uploading_device()
+    with connects_to(device) as constructor:
+        _submit(manager)
+        await manager._deliver()
+
+    assert constructor.call_args.kwargs["blocks_per_ack"] == blocks_per_ack
+    assert constructor.call_args.kwargs["max_queue_size"] == max_queue_size
+
+
+async def test_drain_passes_state_and_refresh_mode(manager: DeliveryManager) -> None:
+    """The queued refresh mode and partial state reach upload_prepared_image.
+
+    py-opendisplay keeps the upload_prepared_image(prepared, refresh_mode=,
+    state=) contract for pipe-partial, so this guards that the wake path keeps
+    threading both through.
+    """
+    device = _uploading_device()
+    sentinel_state = MagicMock()
+    with connects_to(device):
+        _submit(manager, refresh_mode=RefreshMode.PARTIAL, partial_state=sentinel_state)
+        await manager._deliver()
+
     call = device.upload_prepared_image.await_args
     assert call.kwargs["state"] is sentinel_state
     assert call.kwargs["refresh_mode"] is RefreshMode.PARTIAL
 
 
-@pytest.mark.asyncio
-async def test_drain_holds_registry_lock_during_connection():
+# --- the per-MAC BLE lock --------------------------------------------------
+
+
+async def test_drain_holds_the_registry_lock_while_connected(
+    manager: DeliveryManager,
+) -> None:
     """The drain body runs while the process-global per-MAC lock is held."""
-    hass, entry, _ = _make_env()
-    device = MagicMock()
-    device.upload_prepared_image = AsyncMock()
+    device = _uploading_device()
     held: dict[str, bool] = {}
 
     def _factory(**kwargs):
@@ -692,32 +566,27 @@ async def test_drain_holds_registry_lock_during_connection():
 
         return _Ctx()
 
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
-        await mgr._deliver()
+    with connects_via(_factory):
+        _submit(manager)
+        await manager._deliver()
 
     assert held["locked"] is True
 
 
-@pytest.mark.asyncio
-async def test_drain_waits_for_preheld_registry_lock(caplog):
-    """A drain queued behind a pre-held registry lock warns and waits."""
+async def test_drain_waits_for_a_preheld_registry_lock(
+    manager: DeliveryManager, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A drain queued behind an in-flight BLE operation waits its turn."""
     caplog.set_level(logging.WARNING, logger="custom_components.opendisplay.ble_lock")
-    hass, entry, _ = _make_env()
-    device = MagicMock()
-    device.upload_prepared_image = AsyncMock()
+    device = _uploading_device()
     order: list[str] = []
+    holding = asyncio.Event()
     release = asyncio.Event()
 
     async def _hold() -> None:
         async with ble_connection(ADDRESS, "external holder"):
             order.append("holder-enter")
+            holding.set()
             await release.wait()
             order.append("holder-exit")
 
@@ -732,34 +601,25 @@ async def test_drain_waits_for_preheld_registry_lock(caplog):
 
         return _Ctx()
 
-    with (
-        patch.object(delivery_mod, "async_call_later", return_value=MagicMock()),
-        patch.object(delivery_mod, "async_dispatcher_send"),
-        patch.object(transport_mod, "async_ble_device_from_address", return_value=MagicMock()),
-        patch.object(transport_mod, "OpenDisplayDevice", side_effect=_factory),
-    ):
-        mgr = DeliveryManager(hass, entry)
-        _submit(mgr)
+    with connects_via(_factory):
+        _submit(manager)
         holder = asyncio.create_task(_hold())
-        while "holder-enter" not in order:
-            await asyncio.sleep(0)
-        drain = asyncio.create_task(mgr._deliver())
-        # The drain must block on the held lock before it ever connects.
+        await holding.wait()
+
+        drain = asyncio.create_task(manager._deliver())
         for _ in range(5):
             await asyncio.sleep(0)
-        assert "drain-connect" not in order
+        assert "drain-connect" not in order, "the drain connected while blocked"
+
         release.set()
         await asyncio.gather(holder, drain)
 
     assert order == ["holder-enter", "holder-exit", "drain-connect"]
     device.upload_prepared_image.assert_awaited_once()
-    warnings = [
-        r for r in caplog.records
-        if r.name == "custom_components.opendisplay.ble_lock"
-        and r.levelno == logging.WARNING
+    contention = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.opendisplay.ble_lock"
+        and record.levelno == logging.WARNING
     ]
-    assert len(warnings) == 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-v"]))
+    assert len(contention) == 1

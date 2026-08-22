@@ -1,8 +1,11 @@
 """Tests for the OpenDisplay integration."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from ipaddress import ip_address
 from time import time
+from unittest.mock import MagicMock, patch
 
 from bleak.backends.scanner import AdvertisementData
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
@@ -410,3 +413,82 @@ NOT_OPENDISPLAY_SERVICE_INFO = make_service_info(
     name="Other Device",
     manufacturer_data={0x1234: b"\x00\x01"},
 )
+
+
+_UNSET = object()
+
+
+@contextmanager
+def connects_to(device: object) -> Iterator[MagicMock]:
+    """Patch the transport so a connection attempt yields ``device``.
+
+    Yields the OpenDisplayDevice mock, whose call kwargs say which transport
+    was chosen: a WiFi attempt passes ``host``, a BLE one ``mac_address``.
+    """
+    with _patched_transport(lambda **kw: _async_ctx(device)) as constructor:
+        yield constructor
+
+
+@contextmanager
+def connection_fails(error: Exception) -> Iterator[MagicMock]:
+    """Patch the transport so every connection attempt raises ``error``."""
+
+    def _factory(**kwargs):
+        return _async_ctx(error=error)
+
+    with _patched_transport(_factory) as constructor:
+        yield constructor
+
+
+@contextmanager
+def connects_via(factory) -> Iterator[MagicMock]:
+    """Patch the transport with a caller-supplied device factory."""
+    with _patched_transport(factory) as constructor:
+        yield constructor
+
+
+def _async_ctx(device: object = None, error: Exception | None = None):
+    """Return an async context manager yielding ``device`` or raising ``error``."""
+    ctx = MagicMock()
+
+    async def _aenter(*_args):
+        if error is not None:
+            raise error
+        return device
+
+    async def _aexit(*_args):
+        return False
+
+    ctx.__aenter__ = _aenter
+    ctx.__aexit__ = _aexit
+    return ctx
+
+
+@contextmanager
+def ble_unreachable() -> Iterator[None]:
+    """Patch the transport so no connectable BLE device can be found."""
+    from custom_components.opendisplay import transport as transport_mod
+
+    with (
+        patch.object(transport_mod, "OpenDisplayDevice"),
+        patch.object(transport_mod, "async_ble_device_from_address", return_value=None),
+    ):
+        yield
+
+
+@contextmanager
+def _patched_transport(factory, ble_device: object = _UNSET) -> Iterator[MagicMock]:
+    """Patch both of the transport module's connection touchpoints."""
+    from custom_components.opendisplay import transport as transport_mod
+
+    with (
+        patch.object(
+            transport_mod,
+            "async_ble_device_from_address",
+            return_value=MagicMock() if ble_device is _UNSET else ble_device,
+        ),
+        patch.object(
+            transport_mod, "OpenDisplayDevice", side_effect=factory
+        ) as constructor,
+    ):
+        yield constructor
