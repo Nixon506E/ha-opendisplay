@@ -27,5 +27,5 @@
     "py-opendisplay[silabs-ota]==7.15.0",
     "odl-renderer==0.5.12"
   ],
-  "version": "3.0.0"
+  "version": "3.0.1"
 }
