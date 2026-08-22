@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+# Create the test environment.
 
 set -e
 
 cd "$(dirname "$0")/.."
 
-python3 -m pip install --requirement requirements.txt
+uv sync --group dev
