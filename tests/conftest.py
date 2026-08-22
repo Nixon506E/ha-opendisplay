@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from opendisplay import GlobalConfig
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.typing import RecorderInstanceContextManager
@@ -109,7 +110,21 @@ def mock_ble_device() -> Generator[None]:
 
 
 @pytest.fixture
-def mock_opendisplay_device_class() -> Generator[MagicMock]:
+def device_config() -> GlobalConfig:
+    """Return the GlobalConfig the mocked device reports; override to vary hardware."""
+    return DEVICE_CONFIG
+
+
+@pytest.fixture
+def is_flex() -> bool:
+    """Whether the mocked device is a Flex. Override for base-model tests."""
+    return True
+
+
+@pytest.fixture
+def mock_opendisplay_device_class(
+    device_config: GlobalConfig, is_flex: bool
+) -> Generator[MagicMock]:
     """Yield the OpenDisplayDevice class mock (for asserting constructor args)."""
     with (
         patch(_DEVICE_NAMESPACES[0], autospec=True) as mock_class,
@@ -118,8 +133,8 @@ def mock_opendisplay_device_class() -> Generator[MagicMock]:
         mock_device = mock_class.return_value
         mock_device.__aenter__.return_value = mock_device
         mock_device.read_firmware_version.return_value = FIRMWARE_VERSION
-        mock_device.config = DEVICE_CONFIG
-        mock_device.is_flex = True
+        mock_device.config = device_config
+        mock_device.is_flex = is_flex
         # Becomes the device registry's configuration_url, which rejects a
         # MagicMock.
         mock_device.landing_url.return_value = LANDING_URL
@@ -133,13 +148,19 @@ def mock_opendisplay_device(mock_opendisplay_device_class: MagicMock) -> MagicMo
 
 
 @pytest.fixture
-def mock_config_entry() -> MockConfigEntry:
+def config_entry_data() -> dict[str, Any]:
+    """Return the config entry's data; override to store a LAN endpoint or key."""
+    return {}
+
+
+@pytest.fixture
+def mock_config_entry(config_entry_data: dict[str, Any]) -> MockConfigEntry:
     """Create a mock config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
         unique_id=TEST_ADDRESS,
         title=TEST_TITLE,
-        data={},
+        data=config_entry_data,
     )
 
 

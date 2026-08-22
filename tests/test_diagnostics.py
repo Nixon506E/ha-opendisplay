@@ -1,14 +1,19 @@
 """Test the OpenDisplay diagnostics."""
 
+from collections.abc import Awaitable, Callable
 from unittest.mock import MagicMock
 
+from homeassistant.components.diagnostics import REDACTED
 from homeassistant.core import HomeAssistant
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.diagnostics import (
     get_diagnostics_for_config_entry,
 )
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 from syrupy.assertion import SnapshotAssertion
+
+from . import make_wifi_device_config
 
 
 async def test_diagnostics(
@@ -27,3 +32,27 @@ async def test_diagnostics(
         hass, hass_client, mock_config_entry
     )
     assert result == snapshot
+
+
+@pytest.mark.parametrize("device_config", [make_wifi_device_config()])
+async def test_diagnostics_redacts_wifi_credentials(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    mock_config_entry: MockConfigEntry,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """WiFi credentials never reach a diagnostics download.
+
+    The default device config carries no wifi_config, so these keys are only
+    reachable with a WiFi-capable device.
+    """
+    await setup_entry()
+
+    result = await get_diagnostics_for_config_entry(
+        hass, hass_client, mock_config_entry
+    )
+
+    wifi = result["device_config"]["wifi_config"]
+    assert wifi["ssid"] == REDACTED
+    assert wifi["password"] == REDACTED
+    assert wifi["server_url"] == REDACTED

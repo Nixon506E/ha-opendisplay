@@ -23,13 +23,24 @@ from pytest_homeassistant_custom_component.common import (
 )
 from syrupy.assertion import SnapshotAssertion
 
+from custom_components.opendisplay.sensor import (
+    _TEMPERATURE_DESCRIPTION,
+    _sht40_descriptions,
+)
 from tests.bluetooth import (
     inject_bluetooth_service_info,
     patch_all_discovered_devices,
     patch_bluetooth_time,
 )
 
-from . import DEVICE_CONFIG, TEST_ADDRESS, VALID_SERVICE_INFO, make_service_info
+from . import (
+    DEVICE_CONFIG,
+    TEST_ADDRESS,
+    VALID_SERVICE_INFO,
+    make_service_info,
+    make_sht40_device_config,
+    make_sht40_service_info,
+)
 
 pytestmark = pytest.mark.usefixtures("entity_registry_enabled_by_default")
 
@@ -226,3 +237,155 @@ async def test_battery_sensor_defaults_to_liion_when_capacity_estimator_unset(
     # the same value as explicit LI_ION
     expected = voltage_to_percent(3700, CapacityEstimator.LI_ION)
     assert battery_state.state == str(expected)
+
+
+# --- SHT40 ambient sensors -------------------------------------------------
+
+
+@pytest.mark.parametrize("device_config", [make_sht40_device_config()])
+async def test_sht40_entities_created_and_report_the_reading(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """A device with an SHT40 gets ambient entities that decode the advertisement."""
+    await setup_entry()
+
+    inject_bluetooth_service_info(hass, make_sht40_service_info())
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.opendisplay_1234_temperature").state == "28.0"
+    assert hass.states.get("sensor.opendisplay_1234_humidity").state == "63.6"
+
+
+async def test_no_sht40_entities_without_a_configured_sensor(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """The default device config has no SHT40, so no ambient entities appear."""
+    await setup_entry()
+
+    assert entity_registry.async_get("sensor.opendisplay_1234_temperature") is None
+
+
+@pytest.mark.parametrize("device_config", [make_sht40_device_config()])
+@pytest.mark.parametrize(
+    ("block", "reason"),
+    [
+        (b"\xff\xff\xff", "the firmware's read-failure sentinel"),
+        (b"\x00\x00\x00", "an unwritten slot, not a real -40 C reading"),
+    ],
+)
+async def test_sht40_unreadable_block_reports_unknown(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+    block: bytes,
+    reason: str,
+) -> None:
+    """A sentinel or unwritten block is unknown rather than a bogus measurement."""
+    await setup_entry()
+
+    inject_bluetooth_service_info(hass, make_sht40_service_info(block=block))
+    await hass.async_block_till_done()
+
+    assert (
+        hass.states.get("sensor.opendisplay_1234_temperature").state == STATE_UNKNOWN
+    ), reason
+
+
+@pytest.mark.parametrize(
+    "device_config", [make_sht40_device_config(msd_data_start_byte=1)]
+)
+async def test_sht40_reads_from_the_configured_offset(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """E1001/E1002/E1004 place the block at 1, not the firmware default of 7."""
+    await setup_entry()
+
+    inject_bluetooth_service_info(hass, make_sht40_service_info(start_byte=1))
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.opendisplay_1234_temperature").state == "28.0"
+
+
+@pytest.mark.parametrize(
+    "device_config", [make_sht40_device_config(msd_data_start_byte=0)]
+)
+async def test_sht40_offset_zero_resolves_to_the_default_slot(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """0 means "use the default", not byte 0, so the reading is still found."""
+    await setup_entry()
+
+    inject_bluetooth_service_info(hass, make_sht40_service_info())
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.opendisplay_1234_temperature").state == "28.0"
+
+
+def test_sht40_entities_are_primary_not_diagnostic() -> None:
+    """Ambient readings are what the device is for; the chip temperature is not."""
+    for description in _sht40_descriptions(make_sht40_device_config().sensors[0]):
+        assert description.entity_category is None
+        assert description.entity_registry_enabled_default is True
+
+
+def test_chip_temperature_stays_diagnostic_and_disabled() -> None:
+    """The chip temperature is a diagnostic, and off by default."""
+    assert _TEMPERATURE_DESCRIPTION.entity_category is not None
+    assert _TEMPERATURE_DESCRIPTION.entity_registry_enabled_default is False
+
+
+def test_chip_temperature_keeps_its_unique_id_key() -> None:
+    """Renaming is display-only: changing the key would orphan existing entities."""
+    assert _TEMPERATURE_DESCRIPTION.key == "temperature"
+    assert _TEMPERATURE_DESCRIPTION.translation_key == "chip_temperature"
+
+
+def test_sht40_keys_are_distinct_per_instance() -> None:
+    """A second SHT40 must not collide with the first one's unique_id."""
+    first_sensor = make_sht40_device_config().sensors[0]
+    second_sensor = make_sht40_device_config().sensors[0]
+    second_sensor.instance_number = 1
+
+    first = {d.key for d in _sht40_descriptions(first_sensor)}
+    assert first.isdisjoint({d.key for d in _sht40_descriptions(second_sensor)})
+
+
+# --- last_seen -------------------------------------------------------------
+
+
+async def test_last_seen_converts_monotonic_to_wall_time(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """last_seen reports a tz-aware wall-clock time, not the monotonic reading.
+
+    habluetooth stores advertisement times on the monotonic clock, which is an
+    arbitrary epoch; rendering it directly would produce a nonsense timestamp.
+    """
+    await setup_entry()
+
+    inject_bluetooth_service_info(hass, VALID_SERVICE_INFO)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.opendisplay_1234_last_seen")
+    parsed = dt_util.parse_datetime(state.state)
+    assert parsed is not None
+    assert parsed.tzinfo is not None
+    # Within a minute of now, i.e. wall clock rather than time.monotonic().
+    assert abs((dt_util.utcnow() - parsed).total_seconds()) < 60
+
+
+async def test_last_seen_unknown_before_any_advertisement(
+    hass: HomeAssistant,
+    setup_entry: Callable[[], Awaitable[None]],
+) -> None:
+    """With nothing ever seen, last_seen has no value to report."""
+    await setup_entry()
+
+    assert (
+        hass.states.get("sensor.opendisplay_1234_last_seen").state == STATE_UNAVAILABLE
+    )

@@ -15,7 +15,10 @@ from opendisplay import (
     PowerOption,
     SecurityConfig,
     SystemConfig,
+    WifiConfig,
 )
+from opendisplay.models.config import SensorData
+from opendisplay.models.enums import SensorType
 
 from tests.bluetooth import generate_ble_device
 
@@ -202,6 +205,58 @@ def make_binary_inputs(
         pullups=0,
         pulldowns=0,
         button_data_byte_index=byte_index,
+    )
+
+
+SHT40_READING = bytes.fromhex("7ca20a")  # 28.0 C / 63.6 %RH
+SHT40_START_BYTE = 7
+
+
+def make_sht40_device_config(
+    msd_data_start_byte: int = SHT40_START_BYTE,
+) -> GlobalConfig:
+    """Return a GlobalConfig carrying one SHT40 ambient sensor."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
+        sensors=[
+            SensorData(
+                instance_number=0,
+                sensor_type=SensorType.SHT40,
+                bus_id=0,
+                i2c_addr_7bit=0x44,
+                msd_data_start_byte=msd_data_start_byte,
+            )
+        ],
+    )
+
+
+def make_sht40_service_info(
+    block: bytes = SHT40_READING, start_byte: int = SHT40_START_BYTE
+) -> BluetoothServiceInfoBleak:
+    """Return a v1 advertisement whose dynamic block carries an SHT40 reading."""
+    dynamic = bytearray(11)
+    dynamic[start_byte : start_byte + 3] = block
+    return make_v1_service_info(dynamic_data=bytes(dynamic))
+
+
+def make_wifi_device_config() -> GlobalConfig:
+    """Return a GlobalConfig carrying a wifi_config packet."""
+    return GlobalConfig(
+        system=DEVICE_CONFIG.system,
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
+        wifi_config=WifiConfig(
+            ssid=b"test-ssid".ljust(32, b"\x00"),
+            password=b"test-password".ljust(64, b"\x00"),
+            encryption_type=0,
+            server_url=b"http://example.invalid/".ljust(64, b"\x00"),
+            server_port=80,
+            reserved=b"\x00" * 8,
+        ),
     )
 
 
