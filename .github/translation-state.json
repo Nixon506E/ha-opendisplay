@@ -16,6 +16,10 @@
       "out": "2b75b2bd2d47",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "180ce08f4d8b",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "e0c7a53681ca",
       "src": "e5b83989735c"
@@ -92,9 +96,21 @@
       "out": "1d2972ba825f",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "74e1924f4042",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "56fbb0a82c0d",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "1662dbb14ec4",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "1fe4b52f1a66",
@@ -389,8 +405,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "efd5b116bd7b",
-      "src": "510fc20311e3"
+      "out": "6aeaecc3adfe",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "18e0c4322b87",
@@ -814,6 +830,10 @@
       "out": "8733c1f43375",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "d06abaad2827",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "6abfbf86672f",
       "src": "e5b83989735c"
@@ -890,9 +910,21 @@
       "out": "557f8f83b684",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "bc11d33a0f47",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "c988d8a53ea0",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "f891020eff67",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "76cf838efac6",
@@ -1187,8 +1219,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "ac4bba206ebd",
-      "src": "510fc20311e3"
+      "out": "05b497e48d14",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "68b6fcc1ea1b",
@@ -1612,6 +1644,10 @@
       "out": "937384f4f174",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "91d43f75ad75",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "cb0be5c2d01f",
       "src": "e5b83989735c"
@@ -1688,9 +1724,21 @@
       "out": "d5c6d20003a2",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "b5987d8176ed",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "e29a4aa6795e",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "770d7498552f",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "5c620d69f4ec",
@@ -1985,8 +2033,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "dd6565014d9f",
-      "src": "510fc20311e3"
+      "out": "48ab03deb92d",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "e1867c7f9bb3",
@@ -2410,6 +2458,10 @@
       "out": "a74e2b5f5a8c",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "ec67215ec052",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "66f6fc1dae36",
       "src": "e5b83989735c"
@@ -2486,9 +2538,21 @@
       "out": "dbe5232de45c",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "d85579eb057a",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "d13a809359dd",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "664c4836055e",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "26ed1f392213",
@@ -2783,8 +2847,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "fc0ce13b0f4d",
-      "src": "510fc20311e3"
+      "out": "bae0d31c38b6",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "12a58326f853",
@@ -3208,6 +3272,10 @@
       "out": "f82ec533e69a",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "bbd2bb4315c8",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "619607b89bc8",
       "src": "e5b83989735c"
@@ -3284,9 +3352,21 @@
       "out": "2b0eb62d4b08",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "15d3ab4ae616",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "04c1018423a6",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "e196fd3b8853",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "294e6fa3faaa",
@@ -3581,8 +3661,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "a67d894d5dfb",
-      "src": "510fc20311e3"
+      "out": "d48d4267070f",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "b8cff750b1c0",
@@ -4006,6 +4086,10 @@
       "out": "a087efe1501f",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "4c347b41ffc7",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "446ac0c8d0c8",
       "src": "e5b83989735c"
@@ -4082,9 +4166,21 @@
       "out": "0d218629fbba",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "edad77c467f7",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "0aba5d4785b6",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "87e6e1582bf5",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "f65cca5119e6",
@@ -4379,8 +4475,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "587a11c9c7f4",
-      "src": "510fc20311e3"
+      "out": "28464fa6bfbc",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "b3d5bc3dee52",
@@ -4804,6 +4900,10 @@
       "out": "d5583c81f32e",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "7ebe2a2aa666",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "4e97976f368e",
       "src": "e5b83989735c"
@@ -4880,9 +4980,21 @@
       "out": "29d3b3fd16aa",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "fac4f76e96ea",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "ef762c39f0be",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "6fad1ebd0512",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "97c874f78dd0",
@@ -5177,8 +5289,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "b81ffe0280b1",
-      "src": "510fc20311e3"
+      "out": "bba7ec3ef15e",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "4c4e8557c086",
@@ -5602,6 +5714,10 @@
       "out": "99b93bd5fcb6",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "fac1c3b267e8",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "c3a3779b59e8",
       "src": "e5b83989735c"
@@ -5678,9 +5794,21 @@
       "out": "b90ef1e43fe2",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "72b5c583029f",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "e29a4aa6795e",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "ead340a37e92",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "4111fd0385ea",
@@ -5975,8 +6103,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "7b1bb1eec059",
-      "src": "510fc20311e3"
+      "out": "4ecf73668d9c",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "4ccef85f69f6",
@@ -6400,6 +6528,10 @@
       "out": "99b93bd5fcb6",
       "src": "b8f28e84cf0b"
     },
+    "config\u0000abort\u0000no_mac": {
+      "out": "fd90f093459e",
+      "src": "bfe164d57ef2"
+    },
     "config\u0000abort\u0000reauth_successful": {
       "out": "c3a3779b59e8",
       "src": "e5b83989735c"
@@ -6476,9 +6608,21 @@
       "out": "b90ef1e43fe2",
       "src": "109135454652"
     },
+    "config\u0000step\u0000zeroconf_confirm\u0000description": {
+      "out": "c5f9a08adbeb",
+      "src": "76fd726b1b37"
+    },
+    "config\u0000step\u0000zeroconf_confirm\u0000title": {
+      "out": "e29a4aa6795e",
+      "src": "21f906659acb"
+    },
     "entity\u0000binary_sensor\u0000update_pending\u0000name": {
       "out": "ead340a37e92",
       "src": "8e0a4b18ae75"
+    },
+    "entity\u0000binary_sensor\u0000wifi\u0000name": {
+      "out": "10df5f541da7",
+      "src": "10df5f541da7"
     },
     "entity\u0000event\u0000button\u0000name": {
       "out": "4111fd0385ea",
@@ -6773,8 +6917,8 @@
       "src": "4fc52a3c4c55"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000description": {
-      "out": "7b1bb1eec059",
-      "src": "510fc20311e3"
+      "out": "bb7fece96e22",
+      "src": "cb6f32d9ee60"
     },
     "services\u0000activate_buzzer\u0000fields\u0000frequency_hz\u0000name": {
       "out": "4ccef85f69f6",

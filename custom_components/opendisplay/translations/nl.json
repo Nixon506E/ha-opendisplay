@@ -5,6 +5,7 @@
       "already_in_progress": "Configuratiestroom is al bezig",
       "cannot_connect": "Verbinding mislukt",
       "no_devices_found": "Geen apparaten gevonden op het netwerk",
+      "no_mac": "Het ontdekte apparaat heeft geen MAC-adres geadverteerd en kan niet worden ingesteld.",
       "reauth_successful": "Her-authenticatie was succesvol",
       "unknown": "Onverwachte fout"
     },
@@ -47,6 +48,10 @@
           "address": "Selecteer het Bluetooth-apparaat om in te stellen."
         },
         "description": "Kies een apparaat om in te stellen"
+      },
+      "zeroconf_confirm": {
+        "description": "Open {name} instellen, gevonden via WiFi?",
+        "title": "OpenDisplay-apparaat gevonden"
       }
     }
   },
@@ -54,6 +59,9 @@
     "binary_sensor": {
       "update_pending": {
         "name": "Update in afwachting"
+      },
+      "wifi": {
+        "name": "WiFi"
       }
     },
     "event": {
@@ -248,7 +256,7 @@
           "name": "Duur"
         },
         "frequency_hz": {
-          "description": "Toonfrequentie in Hz (0 = stilte, 400-12000).",
+          "description": "Toonfrequentie in Hz (0 = stilte). Wordt afgespeeld als de dichtstbijzijnde kwarttoon; frequenties buiten het bereik van de buzzer worden met octaven verschoven om te passen.",
           "name": "Frequentie"
         },
         "instance": {
