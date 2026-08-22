@@ -22,7 +22,7 @@ from opendisplay import (
 )
 from opendisplay.models.config import NfcConfig, SensorData, TouchController
 from opendisplay.models.config_json import config_to_json
-from opendisplay.models.enums import PowerMode, SensorType
+from opendisplay.models.enums import ICType, PowerMode, SensorType
 
 from tests.bluetooth import generate_ble_device
 
@@ -349,6 +349,20 @@ def make_nfc_device_config(enabled: bool = True, sleepy: bool = False) -> Global
                 reserved=b"\x00" * 4,
             )
         ],
+    )
+
+
+OTA_REPO = "OpenDisplay/Firmware_Silabs"
+GITHUB_LATEST = f"https://api.github.com/repos/{OTA_REPO}/releases/latest"
+
+
+def make_ota_device_config(sleepy: bool = False) -> GlobalConfig:
+    """Return a GlobalConfig for an EFR32BG22, the IC that supports BLE OTA."""
+    return GlobalConfig(
+        system=replace(DEVICE_CONFIG.system, ic_type=ICType.EFR32BG22),
+        manufacturer=DEVICE_CONFIG.manufacturer,
+        power=make_sleepy_device_config().power if sleepy else DEVICE_CONFIG.power,
+        displays=DEVICE_CONFIG.displays,
     )
 
 
