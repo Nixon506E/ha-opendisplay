@@ -154,13 +154,22 @@ def config_entry_data() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mock_config_entry(config_entry_data: dict[str, Any]) -> MockConfigEntry:
+def config_entry_options() -> dict[str, Any]:
+    """Return the config entry's options; override to configure the integration."""
+    return {}
+
+
+@pytest.fixture
+def mock_config_entry(
+    config_entry_data: dict[str, Any], config_entry_options: dict[str, Any]
+) -> MockConfigEntry:
     """Create a mock config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
         unique_id=TEST_ADDRESS,
         title=TEST_TITLE,
         data=config_entry_data,
+        options=config_entry_options,
     )
 
 
