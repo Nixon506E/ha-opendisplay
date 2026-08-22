@@ -180,13 +180,22 @@ def make_v1_service_info(
     dynamic_data: bytes = b"\x00" * 11,
     name: str | None = "OpenDisplay 1234",
     address: str = TEST_ADDRESS,
+    reboot: bool = False,
+    loop_counter: int = 0x11,
 ) -> BluetoothServiceInfoBleak:
-    """Create a v1 advertisement service info with a custom 11-byte dynamic block."""
-    # temperature=25.0°C, battery≈3700 mV, loop_counter=1
+    """Create a v1 advertisement service info with a custom 11-byte dynamic block.
+
+    ``reboot`` sets bit 1 of the final byte, which the firmware raises on boot
+    and clears on the first BLE connection.
+    """
+    # temperature=25.0°C, battery≈3700 mV
+    flags = loop_counter | (0x02 if reboot else 0x00)
     return make_service_info(
         name=name,
         address=address,
-        manufacturer_data={OPENDISPLAY_MANUFACTURER_ID: dynamic_data + b"\x82\x72\x11"},
+        manufacturer_data={
+            OPENDISPLAY_MANUFACTURER_ID: dynamic_data + b"\x82\x72" + bytes([flags])
+        },
     )
 
 
