@@ -10,7 +10,9 @@ from homeassistant.core import HomeAssistant
 from opendisplay import GlobalConfig
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
 from pytest_homeassistant_custom_component.typing import RecorderInstanceContextManager
+from syrupy.assertion import SnapshotAssertion
 
 from custom_components.opendisplay import BASE_PLATFORMS, FLEX_PLATFORMS
 from custom_components.opendisplay.const import CONF_ENCRYPTION_KEY, DOMAIN
@@ -44,6 +46,17 @@ _BLE_DEVICE_NAMESPACES = (
     "custom_components.opendisplay.transport.async_ble_device_from_address",
     "custom_components.opendisplay.update.async_ble_device_from_address",
 )
+
+
+# PHCC provides this too, but whether its plugin fixture wins over syrupy's own
+# depends on plugin load order, which is not stable across the two dependency
+# groups or across platforms: without it snapshots resolve to __snapshots__/
+# instead of snapshots/ and every snapshot reads as missing. Home Assistant core
+# defines it in its own conftest for the same reason.
+@pytest.fixture
+def snapshot(snapshot: SnapshotAssertion) -> SnapshotAssertion:
+    """Use the Home Assistant snapshot extension."""
+    return snapshot.use_extension(HomeAssistantSnapshotExtension)
 
 
 @pytest.fixture(autouse=True)
