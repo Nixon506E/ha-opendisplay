@@ -9,7 +9,19 @@ from homeassistant.core import HomeAssistant
 from . import OpenDisplayConfigEntry
 from .const import CONF_HOST, CONF_PORT, CONF_TLS
 
-TO_REDACT = {"ssid", "password", "server_url"}
+TO_REDACT = {
+    "ssid",
+    "password",
+    "server_url",
+    "serial_number",
+    "friendly_name",
+    "device_location",
+    "device_id",
+    "custom_string_1",
+    "custom_string_2",
+    "custom_string_3",
+    "encryption_key",
+}
 
 
 def _asdict(obj: Any) -> Any:
