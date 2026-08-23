@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
+from homeassistant.core_config import async_process_ha_core_config
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from opendisplay import (
@@ -204,18 +205,23 @@ async def test_upload_image_ble_error(
         )
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        aiohttp.ClientError("connection refused"),
+        TimeoutError(),
+    ],
+)
 async def test_upload_image_download_error(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     aioclient_mock: AiohttpClientMocker,
+    exc: Exception,
 ) -> None:
     """Test that HomeAssistantError is raised on media download failure."""
     device_id = _device_id(hass, mock_config_entry)
 
-    aioclient_mock.get(
-        "http://example.com/image.png",
-        exc=aiohttp.ClientError("connection refused"),
-    )
+    aioclient_mock.get("http://example.com/image.png", exc=exc)
 
     mock_media = MagicMock()
     mock_media.path = None
@@ -240,6 +246,56 @@ async def test_upload_image_download_error(
             },
             blocking=True,
         )
+
+
+def _png_bytes() -> bytes:
+    """Return a small PNG as raw bytes."""
+    buf = io.BytesIO()
+    PILImage.new("RGB", (10, 10)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("domain", "entity_id", "path"),
+    [
+        ("camera", "camera.front_door", "/api/camera_proxy/camera.front_door"),
+        ("image", "image.tag_content", "/api/image_proxy/image.tag_content"),
+    ],
+)
+async def test_upload_image_entity_still_frame(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_upload_device: MagicMock,
+    aioclient_mock: AiohttpClientMocker,
+    domain: str,
+    entity_id: str,
+    path: str,
+) -> None:
+    """Camera/image entities are fetched from their still endpoint."""
+    device_id = _device_id(hass, mock_config_entry)
+    await async_process_ha_core_config(hass, {"internal_url": "http://127.0.0.1:8123"})
+    aioclient_mock.get(f"http://127.0.0.1:8123{path}", content=_png_bytes())
+
+    with patch(
+        "custom_components.opendisplay.services.async_resolve_media",
+    ) as mock_resolve:
+        await hass.services.async_call(
+            DOMAIN,
+            "upload_image",
+            {
+                "device_id": device_id,
+                "image": {
+                    "media_content_id": f"media-source://{domain}/{entity_id}",
+                    "media_content_type": "image/jpeg",
+                },
+            },
+            blocking=True,
+        )
+
+    assert aioclient_mock.call_count == 1
+    assert aioclient_mock.mock_calls[0][1].path == path
+    mock_resolve.assert_not_called()
+    mock_upload_device.upload_prepared_image.assert_called_once()
 
 
 @pytest.mark.parametrize(
