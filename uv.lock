@@ -1833,7 +1833,7 @@ min-ha = [
 [package.metadata]
 requires-dist = [
     { name = "odl-renderer", specifier = "==0.5.12" },
-    { name = "py-opendisplay", extras = ["silabs-ota"], specifier = "==7.15.0" },
+    { name = "py-opendisplay", extras = ["silabs-ota"], specifier = "==7.16.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2117,7 +2117,7 @@ wheels = [
 
 [[package]]
 name = "py-opendisplay"
-version = "7.15.0"
+version = "7.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -2128,9 +2128,9 @@ dependencies = [
     { name = "pillow", version = "12.2.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'group-25-opendisplay-homeassistant-min-ha'" },
     { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'group-25-opendisplay-homeassistant-dev' or extra != 'group-25-opendisplay-homeassistant-min-ha'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/ac/bc7cee50bdf95399719e112c2c89bb46706a43e918c0b4275f4e7a690184/py_opendisplay-7.15.0.tar.gz", hash = "sha256:a2b5ea081255803c1ef9d123cd0c851f98cb872fa100bc1eefa5bb1afaefbfef", size = 344602, upload-time = "2026-08-03T12:22:21.941Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/60/50af1aa8aa99ade4faa37078483dba2121316cb26675095f315244e632e4/py_opendisplay-7.16.0.tar.gz", hash = "sha256:47283ec6b058c06a49e7f8cac5e7dade04d68ae46824f700212bf56ed1a4a636", size = 348831, upload-time = "2026-08-14T10:46:29.577Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/ac/6a466c9afe92d142328307aa6f505f260d297dc59e624716ff9a8470cafd/py_opendisplay-7.15.0-py3-none-any.whl", hash = "sha256:15b2b79b6bea81997aeeaf4bb939495f623e4c3cb2a3e5e59781de8ebdea9900", size = 158723, upload-time = "2026-08-03T12:22:20.496Z" },
+    { url = "https://files.pythonhosted.org/packages/41/e0/1dabe3b802c66624351c332002abc9eca02eb8b21330713f34ebdbd48549/py_opendisplay-7.16.0-py3-none-any.whl", hash = "sha256:15c662c69d48780ed6bf97afc31dd98c0b473387c855b006d60dddd63cd10095", size = 161359, upload-time = "2026-08-14T10:46:28.128Z" },
 ]
 
 [package.optional-dependencies]
