@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.0.2](https://github.com/OpenDisplay/Home_Assistant_Integration/compare/3.0.1...3.0.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* declare silabs-ble-ota explicitly in the manifest ([b27f123](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/b27f123697a114e220f904df15e291ca609bfde9))
+* fetch camera and image sources from their still endpoint ([5589a94](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/5589a940529ea17e71806bba4427745bb699129d))
+* register the mDNS service type in the manifest ([8096fc4](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/8096fc4b83252388f1296c9d4fa1ed8a22509053))
+* update py-opendisplay to 7.16.0 ([516ff5c](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/516ff5c95f0d79c029b925b0f595e48158717c3e))
+
 ## [3.0.1](https://github.com/OpenDisplay/Home_Assistant_Integration/compare/3.0.0...3.0.1) (2026-08-22)
 
 
