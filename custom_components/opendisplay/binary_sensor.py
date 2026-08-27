@@ -1,6 +1,6 @@
 """Binary sensor platform for OpenDisplay devices."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -50,7 +50,7 @@ def _to_iso(epoch: float | None) -> str | None:
     """Convert an epoch timestamp to an ISO string, or None."""
     if epoch is None:
         return None
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
 
 
 class OpenDisplayUpdatePendingSensor(BinarySensorEntity):
@@ -80,6 +80,7 @@ class OpenDisplayUpdatePendingSensor(BinarySensorEntity):
         self._expires_at = snapshot.expires_at
         self._attempts = snapshot.attempts
         self._last_error = snapshot.last_error
+        self._auth_paused = snapshot.auth_paused
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -89,6 +90,9 @@ class OpenDisplayUpdatePendingSensor(BinarySensorEntity):
             "expires_at": _to_iso(self._expires_at),
             "attempts": self._attempts,
             "last_error": self._last_error,
+            # Authoritative: an expiring slot can overwrite last_error with
+            # "expired" while delivery is still blocked on authentication.
+            "auth_paused": self._auth_paused,
         }
 
     async def async_added_to_hass(self) -> None:

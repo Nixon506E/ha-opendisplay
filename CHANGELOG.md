@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.0.2](https://github.com/OpenDisplay/Home_Assistant_Integration/compare/3.0.1...3.0.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* declare silabs-ble-ota explicitly in the manifest ([b27f123](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/b27f123697a114e220f904df15e291ca609bfde9))
+* fetch camera and image sources from their still endpoint ([5589a94](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/5589a940529ea17e71806bba4427745bb699129d))
+* register the mDNS service type in the manifest ([8096fc4](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/8096fc4b83252388f1296c9d4fa1ed8a22509053))
+* update py-opendisplay to 7.16.0 ([516ff5c](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/516ff5c95f0d79c029b925b0f595e48158717c3e))
+
+## [3.0.1](https://github.com/OpenDisplay/Home_Assistant_Integration/compare/3.0.0...3.0.1) (2026-08-22)
+
+
+### Bug Fixes
+
+* attach the HACS zip from the release-please job ([bc1cf86](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/bc1cf8694d52672ca28028d98cef660ad7e1c82c))
+* **delivery:** report "auth" not a stale expiry when submitting while paused ([098704f](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/098704f8842dc08c263f251c9bd575286a733669)), closes [#91](https://github.com/OpenDisplay/Home_Assistant_Integration/issues/91)
+* **delivery:** stop the auth retry loop on a pending config resync ([3caca90](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/3caca90461c8ddc9d2b9777accf2367750e54026)), closes [#91](https://github.com/OpenDisplay/Home_Assistant_Integration/issues/91)
+* never set up the event platform for a base model ([4929c5c](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/4929c5c4b8f4ea18b502a7a17a253540894b8235))
+* redact the AES key and device identity from diagnostics ([e831ba7](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/e831ba7a12a50a533d87c5b2be80b4b8c3e02fbb))
+* **translations:** more natural German terminology ([#104](https://github.com/OpenDisplay/Home_Assistant_Integration/issues/104)) ([4198741](https://github.com/OpenDisplay/Home_Assistant_Integration/commit/41987414a7072e86b4f3117ef6f3db5a968249e0))
+
 ## [3.0.0](https://github.com/OpenDisplay/Home_Assistant_Integration/compare/v3.0.0-beta.10...3.0.0) (2026-08-21)
 
 

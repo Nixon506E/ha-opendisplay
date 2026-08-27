@@ -25,6 +25,13 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
+
 from opendisplay import (
     AuthenticationFailedError,
     AuthenticationRequiredError,
@@ -35,13 +42,6 @@ from opendisplay import (
     PartialState,
     RefreshMode,
 )
-
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_call_later
 
 from .ble_lock import ble_connection
 from .const import (
@@ -95,9 +95,6 @@ class PendingUpload:
     queued_at: float
     expires_at: float
     attempts: int = 0
-    # Set when a delivery hit an auth failure; suppresses further doomed
-    # attempts until the entry reloads after reauth.
-    paused: bool = False
     cancel_deadline: CALLBACK_TYPE | None = None
 
 
@@ -118,6 +115,10 @@ class DeliverySnapshot:
     expires_at: float | None
     attempts: int
     last_error: str | None
+    # Authoritative "delivery is blocked on authentication" signal. ``last_error``
+    # is only best-effort for this: a paused slot's expiry timer still fires and
+    # overwrites it with "expired".
+    auth_paused: bool = False
 
 
 class DeliveryManager:
@@ -135,6 +136,12 @@ class DeliveryManager:
         self._pending_upload: PendingUpload | None = None
         self._pending_config_resync: bool = False
         self._last_error: str | None = None
+        # Terminal state for authentication failures. The device rejects every
+        # further attempt identically, and delivery is advertisement-driven with
+        # no throttle, so without this a pending config resync would reconnect
+        # once per advertisement forever (issue #91). Covers *both* work types
+        # and is cleared only by an entry reload, which rebuilds this manager.
+        self._auth_paused: bool = False
 
         self._delivering: bool = False
         self._delivery_task: asyncio.Task[None] | None = None
@@ -163,7 +170,7 @@ class DeliveryManager:
                 await self._delivery_task
             except asyncio.CancelledError:
                 pass
-            except Exception:  # noqa: BLE001 - shutdown must not raise
+            except Exception:
                 _LOGGER.debug("Delivery task raised during shutdown", exc_info=True)
         self._delivery_task = None
         self._delivering = False
@@ -180,6 +187,7 @@ class DeliveryManager:
             expires_at=upload.expires_at if upload else None,
             attempts=upload.attempts if upload else 0,
             last_error=self._last_error,
+            auth_paused=self._auth_paused,
         )
 
     # -- submission ---------------------------------------------------------
@@ -213,7 +221,14 @@ class DeliveryManager:
         )
         self._schedule_expiry(slot)
         self._pending_upload = slot
-        self._last_error = None
+        # Queuing new content must not make a paused manager look healthy, and
+        # must not resume connection attempts: the pause is automation-proof by
+        # design (a frame-changing automation would otherwise re-arm the storm
+        # before every advertisement). Restore "auth" rather than merely keeping
+        # the current value -- the previous slot's expiry timer may have already
+        # overwritten it with "expired", which would otherwise be reported
+        # against this brand-new upload.
+        self._last_error = "auth" if self._auth_paused else None
         # Show the intended frame immediately (the image entity now reflects
         # what will be delivered, not what is on the panel).
         async_dispatcher_send(
@@ -224,7 +239,12 @@ class DeliveryManager:
 
     @callback
     def request_config_resync(self) -> None:
-        """Request a firmware/config re-read at the next wake."""
+        """Request a firmware/config re-read at the next wake.
+
+        Deliberately does *not* clear ``_auth_paused``: this is called
+        automatically on every advertised reboot edge for sleepy devices, so
+        clearing here would reopen the per-advertisement loop of issue #91.
+        """
         self._pending_config_resync = True
         self._entry.runtime_data.config_resync_pending = True
 
@@ -248,8 +268,9 @@ class DeliveryManager:
 
     def _has_pending_work(self) -> bool:
         """Return True if there is deliverable work queued."""
-        upload_ready = self._pending_upload is not None and not self._pending_upload.paused
-        return upload_ready or self._pending_config_resync
+        if self._auth_paused:
+            return False
+        return self._pending_upload is not None or self._pending_config_resync
 
     # -- delivery drain -----------------------------------------------------
 
@@ -285,14 +306,13 @@ class DeliveryManager:
             # Device slept mid-connect or the wake window was missed; keep the
             # work queued and try again on the next wake.
             self._register_attempt_failure(str(err))
-        except (AuthenticationFailedError, AuthenticationRequiredError):
-            # Bad/rotated key: pause the upload and prompt the user to reauth.
+        except AuthenticationFailedError, AuthenticationRequiredError:
+            # Bad/rotated/absent key. Pausing only the upload would leave a
+            # pending config resync deliverable, and the next advertisement would
+            # start another identical, doomed session (issue #91), so the pause is
+            # manager-wide.
             _LOGGER.warning("%s: delivery auth failed; starting reauth", self._address)
-            if self._pending_upload is not None:
-                self._pending_upload.paused = True
-            self._last_error = "auth"
-            self._entry.async_start_reauth(self._hass)
-            self._notify_state()
+            self._pause_for_auth(start_reauth=True)
         except OpenDisplayError as err:
             _LOGGER.warning("%s: delivery failed: %s", self._address, err)
             self._register_attempt_failure(str(err))
@@ -301,10 +321,14 @@ class DeliveryManager:
             self._delivery_task = None
 
     async def _drain_once(self) -> None:
-        """The connection + drain body (see `_deliver` for error handling)."""
+        """Run the connection + drain body (see `_deliver` for error handling)."""
         key = self._resolve_key()
         if key is _KEY_INVALID:
-            # Malformed stored key; reauth was already started.
+            # Malformed stored key; ``_resolve_key`` already started reauth. This
+            # returns normally rather than raising, so without pausing here the
+            # work stays deliverable and every advertisement retries it — the
+            # same loop as the auth handler above, by a second route.
+            self._pause_for_auth(start_reauth=False)
             return
 
         runtime = self._entry.runtime_data
@@ -327,7 +351,7 @@ class DeliveryManager:
             # then failed on resync, the BLE fallback re-runs this and must not
             # re-upload an already-delivered frame (``_drain_upload`` clears it).
             pending = self._pending_upload
-            if pending is not None and not pending.paused:
+            if pending is not None:
                 await self._drain_upload(device, pending)
             if self._pending_config_resync:
                 await self._drain_resync(device)
@@ -373,7 +397,7 @@ class DeliveryManager:
     async def _drain_resync(self, device: OpenDisplayDevice) -> None:
         """Re-read firmware/config over the open link and refresh the cache."""
         # Local import avoids an import cycle (__init__ imports this module).
-        from . import _write_cache  # noqa: PLC0415
+        from . import _write_cache
 
         fw = await device.read_firmware_version()
         is_flex = device.is_flex
@@ -443,6 +467,21 @@ class DeliveryManager:
         self._notify_state()
 
     # -- helpers ------------------------------------------------------------
+
+    @callback
+    def _pause_for_auth(self, *, start_reauth: bool) -> None:
+        """Enter the manager-wide terminal state for an authentication failure.
+
+        Both entry points (the ``_deliver`` handler and the malformed-key path in
+        ``_drain_once``) must set the flag, record the error and notify entities,
+        so they share this helper rather than repeating it. ``start_reauth`` is
+        False where the caller has already started the flow.
+        """
+        self._auth_paused = True
+        self._last_error = "auth"
+        if start_reauth:
+            self._entry.async_start_reauth(self._hass)
+        self._notify_state()
 
     def _register_attempt_failure(self, reason: str) -> None:
         """Record a failed wake attempt and keep the work queued.

@@ -16,19 +16,20 @@ BLE for that same delivery — a hard requirement — via ``async_run_with_fallb
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+import contextlib
 from dataclasses import dataclass
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+
+from homeassistant.components.bluetooth import async_ble_device_from_address
+from homeassistant.core import HomeAssistant
 
 from opendisplay import (
     OpenDisplayConnectionError,
     OpenDisplayDevice,
     OpenDisplayTimeoutError,
 )
-
-from homeassistant.components.bluetooth import async_ble_device_from_address
-from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_HOST,
@@ -86,7 +87,10 @@ def resolve_transport(entry: OpenDisplayConfigEntry) -> ResolvedTransport:
         return ResolvedTransport(False, None, port, tls)
 
     last_seen = _mdns_last_seen(entry)
-    fresh = last_seen is not None and (time.monotonic() - last_seen) <= MDNS_FRESHNESS_WINDOW_S
+    fresh = (
+        last_seen is not None
+        and (time.monotonic() - last_seen) <= MDNS_FRESHNESS_WINDOW_S
+    )
     if not fresh:
         _LOGGER.debug(
             "%s: host %s known but mDNS presence stale/absent; using BLE",
@@ -128,10 +132,8 @@ def record_last_transport(entry: OpenDisplayConfigEntry, transport: str) -> None
     runtime = getattr(entry, "runtime_data", None)
     if runtime is None:
         return
-    try:
+    with contextlib.suppress(AttributeError):  # pragma: no cover
         runtime.last_transport = transport
-    except AttributeError:  # pragma: no cover
-        pass
 
 
 async def async_run_with_fallback(

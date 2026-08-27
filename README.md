@@ -9,88 +9,193 @@
 
 Home Assistant Integration for the [OpenDisplay](https://opendisplay.org/) project, enabling control and monitoring of E-Paper displays through Home Assistant.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/OpenDisplay/Home_Assistant_Integration/main/docs/images/opendisplay-426-mono-kit.jpg" alt="OpenDisplay 4.26&quot; mono kit" width="45%">
+  <img src="https://raw.githubusercontent.com/OpenDisplay/Home_Assistant_Integration/main/docs/images/opendisplay-73-color-kit.jpg" alt="OpenDisplay 7.3&quot; colour kit" width="45%">
+</p>
+
+<p align="center"><sub>The OpenDisplay 4.26&quot; mono and 7.3&quot; colour kits</sub></p>
+
 ## Requirements
 
-Link to seeed OpenDisplay Wiki page will be added here...
+- Home Assistant **2026.7.0** or newer
+- A Bluetooth adapter, or an ESPHome Bluetooth proxy
+- An OpenDisplay-compatible board and panel. See the
+  [compatibility guide](https://opendisplay.org/firmware/seeed_display_compatibility.html)
 
-### Hardware
-OpenDisplay-compatible Boards/Displays:
- - See [Compatibility Guide](https://opendisplay.org/firmware/seeed_display_compatibility.html)
+## What you get
 
-### 🎨 Display Controls
+Each device is set up over Bluetooth and appears with:
 
-#### drawcustom (Recommended)
-The most flexible and powerful service for creating custom displays. Supports:
-- Text with multiple fonts and styles
-- Shapes (rectangles, circles, lines)
-- Icons from Material Design Icons
-- QR codes
-- Images from URLs
-- Plots of Home Assistant sensor data
-- Progress bars
+| | |
+|---|---|
+| **Display content** | an image entity showing the last frame sent, or the one queued for a sleeping tag |
+| **Sensors** | temperature, humidity (on tags with an SHT40), battery level and voltage, signal strength, last seen |
+| **Buttons and touch** | event entities for physical buttons and touch controllers |
+| **Firmware** | an update entity that flashes new firmware over Bluetooth |
+| **Status** | whether content is waiting to be delivered, and whether WiFi delivery is in use |
 
-[View full drawcustom documentation](docs/drawcustom/supported_types.md)
+and these actions:
 
+| action | |
+|---|---|
+| `opendisplay.drawcustom` | compose a frame from text, shapes, icons, QR codes, images, plots and progress bars |
+| `opendisplay.upload_image` | send an existing image, from a local file or a URL |
+| `opendisplay.activate_led` | flash the on-board LED in a colour sequence |
+| `opendisplay.activate_buzzer` | play a tone |
+| `opendisplay.play_melody` | play a sequence of notes |
+| `opendisplay.write_nfc` | write a URL, text, MIME record or Home Assistant tag to the NFC chip |
+
+**Battery-powered tags are handled properly.** A deep-sleeping tag is dark most
+of the time, so content sent to one is queued and delivered the next time it
+wakes, rather than failing. The image entity shows the queued frame straight
+away and marks it as pending until it lands.
+
+**WiFi-capable tags deliver over the LAN** when the device has recently
+announced itself over mDNS, falling back to Bluetooth otherwise.
 
 ## Installation
 
-
-### Option 1: HACS Installation (Recommended)
+### Option 1: HACS (recommended)
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=OpenDisplay&repository=Home_Assistant_Integration)
 
-### Option 2: Manual Installation
+### Option 2: Manual
 1. Download the `opendisplay` folder from the [latest release](https://github.com/OpenDisplay/Home_Assistant_Integration/releases/latest)
 2. Copy it to your [`custom_components` folder](https://developers.home-assistant.io/docs/creating_integration_file_structure/#where-home-assistant-looks-for-integrations)
 3. Restart Home Assistant
 
 ## Configuration
 
-Devices should be automatically discovered after installation.
+Devices are discovered automatically once they are in range, over Bluetooth or
+over mDNS if they are on WiFi. Confirm the discovery to add one.
 
+If a device has encryption enabled you are asked for its 32-character key. Home
+Assistant prompts you again if the key is ever rejected.
 
-## Usage Examples
+Each device has options, under **Configure** on the device page:
 
-### Basic Text Display
+| option | |
+|---|---|
+| **Sleep mode** | whether to treat the tag as deep-sleeping. `Automatic` follows the device's own power configuration |
+| **Missed cycles** | how many wakes may be missed before entities are marked unavailable |
+| **Queue timeout** | how long queued content waits for a wake before it expires |
+| **Probe before queueing** | try a quick connection first, so content reaches an awake tag immediately |
+| **Blocks per ack**, **Max queue size** | Bluetooth transfer tuning; leave these alone unless transfers are unreliable |
+
+## Usage
+
+In the UI the device picker fills these in for you. In YAML, replace
+`YOUR_DEVICE_ID` with the device's id.
+
+`drawcustom` takes a **target**, so one call can draw to several devices, or to
+a whole area or label. The other actions take a single `device_id` field.
+
+### Draw a frame
+
+`payload` is a list of elements drawn in order: text, shapes, icons, QR codes,
+images, plots and progress bars.
+
 ```yaml
-- type: "text"
-  value: "Hello World!"
-  x: 10
-  y: 10
-  size: 40
-  color: "red"
+action: opendisplay.drawcustom
+target:
+  device_id: YOUR_DEVICE_ID
+data:
+  payload:
+    - type: text
+      value: Hello World!
+      x: 10
+      y: 10
+      size: 40
+      color: red
 ```
 
-### Progress Bar with Icon
+Templates are rendered, so a frame can show live state:
+
 ```yaml
-- type: "progress_bar"
-  x_start: 10
-  y_start: 10
-  x_end: 180
-  y_end: 30
-  progress: 75
-  fill: "red"
-  show_percentage: true
-- type: "icon"
-  value: "mdi:battery-70"
-  x: 190
-  y: 20
-  size: 24
+action: opendisplay.drawcustom
+target:
+  device_id: YOUR_DEVICE_ID
+data:
+  payload:
+    - type: text
+      value: "Temperature: {{ states('sensor.temperature') }}°C"
+      x: 10
+      y: 10
+      size: 24
+    - type: progress_bar
+      x_start: 10
+      y_start: 50
+      x_end: 180
+      y_end: 70
+      progress: "{{ states('sensor.battery') | int }}"
+      show_percentage: true
+    - type: icon
+      value: mdi:battery-70
+      x: 190
+      y: 60
+      size: 24
 ```
 
-### Sensor Display
+Every element type and field is documented in
+[the drawcustom guide](docs/drawcustom/supported_types.md).
+
+### Send an existing image
+
 ```yaml
-- type: "text"
-  value: "Temperature: {{ states('sensor.temperature') }}°C"
-  x: 10
-  y: 10
-  size: 24
-  color: "black"
-- type: "text"
-  value: "Humidity: {{ states('sensor.humidity') }}%"
-  x: 10
-  y: 40
-  size: 24
-  color: "black"
+action: opendisplay.upload_image
+data:
+  device_id: YOUR_DEVICE_ID
+  image:
+    media_content_id: media-source://media_source/local/weather.png
+    media_content_type: image/png
+```
+
+### Flash the LED
+
+Up to three colour steps run in sequence. Set a step's `flash_count` to 0 to
+skip it.
+
+```yaml
+action: opendisplay.activate_led
+data:
+  device_id: YOUR_DEVICE_ID
+  brightness: 8
+  color1: [255, 0, 0]
+  flash_count1: 3
+  repeats: 2
+```
+
+### Make a sound
+
+```yaml
+action: opendisplay.activate_buzzer
+data:
+  device_id: YOUR_DEVICE_ID
+  frequency_hz: 1000
+  duration_ms: 200
+```
+
+Or play a melody, as note names with optional durations:
+
+```yaml
+action: opendisplay.play_melody
+data:
+  device_id: YOUR_DEVICE_ID
+  notes: C4 E4 G4 C5
+  tempo: 120
+```
+
+### Write the NFC tag
+
+`record_type` is `url`, `text`, `mime`, or `ha_tag` to write a Home Assistant
+tag that a phone can scan to trigger automations.
+
+```yaml
+action: opendisplay.write_nfc
+data:
+  device_id: YOUR_DEVICE_ID
+  record_type: url
+  content: https://www.home-assistant.io/
 ```
 
 ## Translations
@@ -117,42 +222,13 @@ that style.
 
 Missing a language? Open an issue and we will add it.
 
-<details>
-<summary>Maintaining the translations (developer notes)</summary>
-
-`scripts/translate.py` fills in strings that are missing from a language, or
-whose English source was reworded since it was last translated. Nothing else is
-ever sent to a model. `.github/workflows/translate.yml` runs it when
-`translations/en.json` changes on a release branch and opens a pull request.
-
-**Adding a language.** Add its code and name to `LANGUAGES` in
-`scripts/translate.py`. The next run fills in the file.
-
-**Providers.** Any OpenAI-compatible chat endpoint works. OpenRouter and GitHub
-Models are configured out of the box in `PROVIDERS`, selected by whichever API
-key is present:
-
-| Variable | Provider | Notes |
-|---|---|---|
-| `OPENROUTER_API_KEY` | OpenRouter | Preferred. No output-token cap. |
-| `MODELS_TOKEN` | GitHub Models | Personal access token with `models:read`. |
-| `GITHUB_TOKEN` | GitHub Models | Only works if the repo's org has a Copilot plan. |
-
-`TRANSLATE_PROVIDER` and `TRANSLATE_MODEL` override the choice for one run:
-
-```bash
-OPENROUTER_API_KEY=... TRANSLATE_MODEL=google/gemini-2.5-flash-lite \
-  python3 scripts/translate.py --languages de --dry-run
-```
-
-**Checking output.** `scripts/verify_translations.py` re-checks the files on
-disk and fails on placeholder mismatches, empty values, or keys that no longer
-exist in `en.json`. It also warns when a translation addresses the reader
-directly, which the impersonal style above is meant to avoid.
-
-</details>
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how the translation
+workflow is maintained.
 
 ## Contributing
-- Feature requests and bug reports are welcome! Please open an issue on GitHub
-- Pull requests are encouraged
-- Join the [Discord server](https://discord.com/invite/tw48NCrRxH) to discuss ideas and get help
+
+Pull requests are encouraged, and bug reports and feature requests are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit conventions and
+maintainer notes, or join the
+[Discord server](https://discord.com/invite/tw48NCrRxH) to discuss ideas and
+get help.

@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass
 
-from opendisplay.models.advertisement import TouchTracker
-
 from homeassistant.components.event import (
     EventDeviceClass,
     EventEntity,
@@ -12,6 +10,8 @@ from homeassistant.components.event import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from opendisplay.models.advertisement import TouchTracker
 
 from . import OpenDisplayConfigEntry
 from .entity import OpenDisplayEntity
@@ -92,7 +92,9 @@ async def async_setup_entry(
                 icon="mdi:gesture-tap",
             )
         )
-        touch_trackers.append(TouchTracker(tc.instance_number, tc.touch_data_start_byte))
+        touch_trackers.append(
+            TouchTracker(tc.instance_number, tc.touch_data_start_byte)
+        )
 
     coordinator.touch_trackers = touch_trackers
 

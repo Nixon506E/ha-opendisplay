@@ -3,22 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import timedelta
+import logging
 from typing import Any
 
 import aiohttp
-from opendisplay.device import OpenDisplayDevice
-from opendisplay.exceptions import (
-    AuthenticationFailedError,
-    AuthenticationRequiredError,
-    BLEConnectionError,
-    OTAError,
-)
-from opendisplay.models.enums import ICType
-from opendisplay.models.firmware import firmware_ota_asset, firmware_release_repo
-from opendisplay.ota import perform_silabs_ota
-
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.components.update import (
     UpdateDeviceClass,
@@ -30,6 +19,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from opendisplay.device import OpenDisplayDevice
+from opendisplay.exceptions import (
+    AuthenticationFailedError,
+    AuthenticationRequiredError,
+    BLEConnectionError,
+    OTAError,
+)
+from opendisplay.models.enums import ICType
+from opendisplay.models.firmware import firmware_ota_asset, firmware_release_repo
+from opendisplay.ota import perform_silabs_ota
 
 from . import OpenDisplayConfigEntry, _get_encryption_key
 from .ble_lock import ble_connection
@@ -100,12 +100,16 @@ async def async_setup_entry(
     )
 
 
-class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription], UpdateEntity):
+class OpenDisplayFirmwareUpdateEntity(
+    OpenDisplayEntity[UpdateEntityDescription], UpdateEntity
+):
     """Firmware update entity for an OpenDisplay device."""
 
     _attr_latest_version: str | None = None
     _attr_release_notes: str | None = None
-    should_poll = True  # override coordinator's should_poll=False; GitHub needs regular polling
+    should_poll = (
+        True  # override coordinator's should_poll=False; GitHub needs regular polling
+    )
 
     def __init__(self, coordinator, entry: OpenDisplayConfigEntry) -> None:
         """Initialize the entity."""
@@ -183,13 +187,17 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
                 self._attr_release_notes = data.get("body") or None
         except aiohttp.ClientResponseError as err:
             if err.status in (403, 429):
-                _LOGGER.warning("GitHub API rate limited; latest firmware version unchanged")
+                _LOGGER.warning(
+                    "GitHub API rate limited; latest firmware version unchanged"
+                )
             else:
                 _LOGGER.debug("Failed to fetch latest firmware version: %s", err)
         except aiohttp.ClientError as err:
             _LOGGER.debug("Failed to fetch latest firmware version: %s", err)
 
-    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
+    async def async_install(
+        self, version: str | None, backup: bool, **kwargs: Any
+    ) -> None:
         """Download and install a firmware update over BLE."""
         tag = version or self._attr_latest_version
         if not tag:
@@ -203,9 +211,7 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
         profile = runtime.sleep_profile
         if profile.is_sleepy:
             last_seen = (
-                runtime.coordinator.data.last_seen
-                if runtime.coordinator.data
-                else None
+                runtime.coordinator.data.last_seen if runtime.coordinator.data else None
             )
             if profile.probably_asleep(last_seen):
                 raise HomeAssistantError(
@@ -362,7 +368,9 @@ class OpenDisplayFirmwareUpdateEntity(OpenDisplayEntity[UpdateEntityDescription]
                 resp.raise_for_status()
                 release = await resp.json()
         except aiohttp.ClientError as err:
-            raise HomeAssistantError(f"Could not fetch release metadata: {err}") from err
+            raise HomeAssistantError(
+                f"Could not fetch release metadata: {err}"
+            ) from err
 
         for asset in release.get("assets", []):
             if asset["name"] == asset_name:
