@@ -52,7 +52,10 @@ min-ha = [
     "ruff==0.15.17",
     "mypy==1.18.2",
     "aiousbwatcher",
-    "serialx",
+    # Pinned to what 2026.7.0's usb manifest asks for. The latest leg needs a
+    # newer serialx whose esphome transport no longer imports against the
+    # aioesphomeapi this leg resolves, so the two legs cannot share a version.
+    "serialx==1.8.2",
     "dbus-fast",
     # 2026.7.0 only: components/usb imports serialx's esphome transport
     # eagerly (2026.8.x defers it), which drags in aioesphomeapi.
